@@ -24,6 +24,7 @@ import subprocess
 import threading
 import uuid
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from gettext import gettext as _
 from pathlib import Path
 from typing import Any, List
@@ -254,39 +255,50 @@ def get_favourites() -> None:
 
     user = session.user
 
-    try:
-        favourite_artists = user.favorites.artists()
-        favourite_tracks = user.favorites.tracks(
-            order=ItemOrder.Date, 
-            order_direction=OrderDirection.Descending
-        )
-        favourite_albums = user.favorites.albums()
-        favourite_playlists = user.favorites.playlists()
-        favourite_mixes = user.favorites.mixes()
-        user_playlists = user.playlists()
+    def fetch_artists():
+        return "artists", user.favorites.artists()
 
-        count = user.favorites.get_playlists_count()
-        limit = 50
-        offset = 0
-        pages = []
+    def fetch_tracks():
+        return "tracks", user.favorites.tracks(
+            order=ItemOrder.Date, order_direction=OrderDirection.Descending)
 
-        while offset < count:
-            pages += user.playlist_and_favorite_playlists(offset=offset)
-            offset += limit
+    def fetch_albums():
+        return "albums", user.favorites.albums()
 
-        playlist_and_favorite_playlists = pages
-    except Exception:
-        logger.exception("Error while getting Favourites")
+    def fetch_playlists():
+        return "playlists", user.favorites.playlists()
 
-    logger.info(f"Favorite Artists: {len(favourite_artists)}")
-    logger.info(f"Favorite Tracks: {len(favourite_tracks)}")
-    logger.info(f"Favorite Albums: {len(favourite_albums)}")
-    logger.info(f"Favorite Playlists: {len(favourite_playlists)}")
-    logger.info(f"Favorite Mixes: {len(favourite_mixes)}")
-    logger.info(
-        f"Playlist and Favorite Playlists: {len(playlist_and_favorite_playlists)}"
-    )
-    logger.info(f"User Playlists: {len(user_playlists)}")
+    def fetch_mixes():
+        return "mixes", user.favorites.mixes()
+
+    def fetch_user_playlists():
+        return "user_playlists", user.playlists()
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = [
+            executor.submit(fetch_artists),
+            executor.submit(fetch_tracks),
+            executor.submit(fetch_albums),
+            executor.submit(fetch_playlists),
+            executor.submit(fetch_mixes),
+            executor.submit(fetch_user_playlists),
+        ]
+        for future in as_completed(futures):
+            key, value = future.result()
+            match key:
+                case "artists":
+                    favourite_artists = value
+                case "tracks":
+                    favourite_tracks = value
+                case "albums":
+                    favourite_albums = value
+                case "playlists":
+                    favourite_playlists = value
+                    playlist_and_favorite_playlists = value
+                case "mixes":
+                    favourite_mixes = value
+                case "user_playlists":
+                    user_playlists = value
 
 
 def is_favourited(item: Any) -> bool:
@@ -584,6 +596,8 @@ def get_image_url(item: Any, dimensions: int = 320) -> str | None:
         file_path = Path(f"{IMG_DIR}/{item.id}_{dimensions}.jpg")
     else:
         file_path = Path(f"{IMG_DIR}/{uuid.uuid4()}_{dimensions}.jpg")
+
+    logger.debug(f"Image path: {file_path}, exists: {file_path.is_file()}")
 
     if file_path.is_file():
         return str(file_path)

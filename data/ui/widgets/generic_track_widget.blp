@@ -21,19 +21,38 @@ template $HTGenericTrackWidget: ListBoxRow {
       margin-start: 6;
       margin-end: 6;
 
-      Image image {
-        pixel-size: 44;
-        icon-name: "emblem-music-symbolic";
-        width-request: 44;
-        margin-end: 12;
-        margin-bottom: 6;
-        margin-top: 6;
-        overflow: hidden;
+      Overlay image_overlay {
+          margin-end: 12;
 
-        styles [
-          "small-image",
-        ]
-      }
+          child: Image image {
+            pixel-size: 44;
+            icon-name: "emblem-music-symbolic";
+            width-request: 44;
+            margin-bottom: 6;
+            margin-top: 6;
+            overflow: hidden;
+            styles [
+              "small-image",
+            ]
+          };
+
+          [overlay]
+          Revealer play_revealer {
+            transition-type: crossfade;
+            transition-duration: 150;
+            valign: center;
+            halign: center;
+
+            Button play_overlay_button {
+              icon-name: "media-playback-start-symbolic";
+              tooltip-text: _("Play");
+
+              styles [
+                "play-overlay",
+              ]
+            }
+          }
+        }
 
       Grid _grid {
         column-homogeneous: true;

@@ -96,8 +96,8 @@ class SecretStore:
     def save(self) -> None:
         """Save the current session tokens to secure storage.
 
-        Stores the session's token_type, access_token, and refresh_token
-        in the system keyring for persistent authentication.
+        Stores the session's token information to negate the need for
+        fetching at next launch, lasts until expiry of token.
         """
         token_type: str = self.session.token_type
         access_token: str = self.session.access_token
@@ -109,6 +109,9 @@ class SecretStore:
             "access-token": access_token,
             "refresh-token": refresh_token,
             "expiry-time": str(expiry_time),
+            "session-id": self.session.session_id or "",
+            "country-code": self.session.country_code or "",
+            "user-id": str(self.session.user.id) if self.session.user else "",
         }
 
         json_data: str = json.dumps(self.token_dictionary)

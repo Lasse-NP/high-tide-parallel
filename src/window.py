@@ -20,8 +20,10 @@
 import threading
 from gettext import gettext as _
 from typing import Callable
+from datetime import datetime
 
 import tidalapi
+import tidalapi.user as tidal_user
 from gi.repository import Adw, Gio, GLib, GObject, Gst, Gtk, Xdp
 from tidalapi.media import Quality
 
@@ -142,7 +144,7 @@ class HighTideWindow(Adw.ApplicationWindow):
         utils.player_object = self.player_object
         self.player_object.set_discord_rpc(self.settings.get_boolean("discord-rpc"))
 
-        self.volume_button.get_adjustment().set_value(
+        self.volume_button.set_value(
             self.settings.get_int("last-volume") / 10
         )
 
@@ -206,8 +208,6 @@ class HighTideWindow(Adw.ApplicationWindow):
 
         self.queue_widget_updated = False
 
-        self.secret_store = SecretStore(self.session)
-
         threading.Thread(target=self.th_login, args=()).start()
 
         MPRIS(self.player_object)
@@ -244,19 +244,37 @@ class HighTideWindow(Adw.ApplicationWindow):
         login_dialog.present(self)
 
     def th_login(self):
+        self.secret_store = SecretStore(self.session)
         try:
-            self.session.load_oauth_session(
-                self.secret_store.token_dictionary["token-type"],
-                self.secret_store.token_dictionary["access-token"],
-                self.secret_store.token_dictionary["refresh-token"],
-                self.secret_store.token_dictionary["expiry-time"],
-            )
+            expiry_str = self.secret_store.token_dictionary.get("expiry-time", "")
+            expiry = datetime.fromisoformat(expiry_str) if expiry_str else None
+            token_valid = expiry and datetime.now() < expiry
+
+            if token_valid:
+                self.session.token_type = self.secret_store.token_dictionary["token-type"]
+                self.session.access_token = self.secret_store.token_dictionary["access-token"]
+                self.session.refresh_token = self.secret_store.token_dictionary["refresh-token"]
+                self.session.expiry_time = expiry
+                self.session.session_id = self.secret_store.token_dictionary.get("session-id")
+                self.session.country_code = self.secret_store.token_dictionary.get("country-code")
+                self.session.locale = "en_US"
+                user_id = self.secret_store.token_dictionary.get("user-id")
+                if user_id:
+                    self.session.user = tidal_user.User(self.session, user_id=int(user_id))
+            else:
+                self.session.load_oauth_session(
+                    self.secret_store.token_dictionary["token-type"],
+                    self.secret_store.token_dictionary["access-token"],
+                    self.secret_store.token_dictionary["refresh-token"],
+                    self.secret_store.token_dictionary["expiry-time"],
+                )
+                self.secret_store.save()
         except Exception:
             logger.exception("Error while logging in!")
             GLib.idle_add(self.on_login_failed)
-        else:
-            utils.get_favourites()
-            GLib.idle_add(self.on_logged_in)
+            return
+        utils.get_favourites()
+        GLib.idle_add(self.on_logged_in)
 
     def logout(self):
         """Log out the current user and return to login screen.
@@ -314,6 +332,9 @@ class HighTideWindow(Adw.ApplicationWindow):
                 thing = self.session.track(thing_id)
         except Exception:
             logger.exception("Error while setting last played song")
+
+        if thing is None:
+            return
 
         self.player_object.play_this(thing, index)
 
@@ -413,6 +434,9 @@ class HighTideWindow(Adw.ApplicationWindow):
             self.settings.set_string(
                 "last-playing-thing-type", utils.get_type(mix_album_playlist)
             )
+        elif isinstance(mix_album_playlist, list):
+            self.settings.set_string("last-playing-thing-id", "")
+            self.settings.set_string("last-playing-thing-type", "")
         if track is not None:
             self.settings.set_int("last-playing-index", self.player_object.get_index())
 
@@ -486,12 +510,24 @@ class HighTideWindow(Adw.ApplicationWindow):
 
     def update_repeat_button(self, player, repeat_type):
         """Update the repeat button icon based on current repeat mode"""
-        if player.repeat_type == RepeatType.NONE:
-            self.repeat_button.set_icon_name("media-playlist-consecutive-symbolic")
-        elif player.repeat_type == RepeatType.LIST:
-            self.repeat_button.set_icon_name("media-playlist-repeat-symbolic")
-        elif player.repeat_type == RepeatType.SONG:
-            self.repeat_button.set_icon_name("playlist-repeat-song-symbolic")
+        match self.player_object.repeat_type:
+            case RepeatType.NONE:
+                self.repeat_button.set_icon_name("media-playlist-consecutive-symbolic")
+            case RepeatType.SONG:
+                self.repeat_button.set_icon_name("media-playlist-repeat-symbolic")
+            case RepeatType.LIST:
+                self.repeat_button.set_icon_name("playlist-repeat-song-symbolic")
+        self.update_repeat_tooltip()
+
+    def update_repeat_tooltip(self):
+        """Update the repeat button tooltip based on current repeat mode"""
+        match self.player_object.repeat_type:
+            case RepeatType.NONE:
+                self.repeat_button.set_tooltip_text(_("Repeat: Off"))
+            case RepeatType.SONG:
+                self.repeat_button.set_tooltip_text(_("Repeat: Song"))
+            case RepeatType.LIST:
+                self.repeat_button.set_tooltip_text(_("Repeat: List"))
 
     def on_song_buffering(self, player, percentage):
         if percentage != 100:
@@ -565,7 +601,8 @@ class HighTideWindow(Adw.ApplicationWindow):
         self.player_object.shuffle = btn.get_active()
 
     @Gtk.Template.Callback("on_volume_changed")
-    def on_volume_changed_func(self, widget, value):
+    def on_volume_changed_func(self, widget):
+        value = widget.get_value()
         self.player_object.change_volume(value)
         self.settings.set_int("last-volume", int(value * 10))
 
@@ -639,7 +676,10 @@ class HighTideWindow(Adw.ApplicationWindow):
         self.duration = self.player_object.duration
         end_value = self.duration / Gst.SECOND
 
-        self.volume_button.get_adjustment().set_value(self.player_object.query_volume())
+        current = self.player_object.query_volume()
+        if abs(self.volume_button.get_value() - current) > 0.01:
+            self.volume_button.set_value(current)
+
         position = self.player_object.query_position(default=None)
         if position is None:
             return

@@ -45,7 +45,11 @@ class HTGenericTrackWidget(Gtk.ListBoxRow, IDisconnectable):
 
     __gtype_name__ = "HTGenericTrackWidget"
 
+    image_overlay = Gtk.Template.Child()
     image = Gtk.Template.Child()
+    play_revealer = Gtk.Template.Child()
+    play_overlay_button = Gtk.Template.Child()
+
     track_title_label = Gtk.Template.Child()
     track_duration_label = Gtk.Template.Child()
     playlists_submenu = Gtk.Template.Child()
@@ -117,6 +121,12 @@ class HTGenericTrackWidget(Gtk.ListBoxRow, IDisconnectable):
         self.action_group = Gio.SimpleActionGroup()
         self.insert_action_group("trackwidget", self.action_group)
 
+        motion_controller = Gtk.EventControllerMotion()
+        motion_controller.connect("enter", self._on_hover_enter)
+        motion_controller.connect("leave", self._on_hover_leave)
+        self.add_controller(motion_controller)
+        self.play_overlay_button.connect("clicked", self._on_play_clicked)
+
     def _on_menu_activate(self, *args):
         if self.menu_activated:
             return
@@ -185,3 +195,12 @@ class HTGenericTrackWidget(Gtk.ListBoxRow, IDisconnectable):
 
     def _copy_share_url(self, *args):
         utils.share_this(self.track)
+
+    def _on_hover_enter(self, *args) -> None:
+        self.play_revealer.set_reveal_child(True)
+
+    def _on_hover_leave(self, *args) -> None:
+        self.play_revealer.set_reveal_child(False)
+
+    def _on_play_clicked(self, *args) -> None:
+        self.activate()
