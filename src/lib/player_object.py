@@ -575,6 +575,11 @@ class PlayerObject(GObject.GObject):
             logger.info("Using already enqueued track from gapless")
             track = self.next_track
             self.next_track = None
+
+            # If a track is manually skipped in the last moments
+            if not gapless and self.playing_track:
+                self.played_songs.append(self.playing_track)
+
             self.play_track(track, gapless=gapless)
             return
 
