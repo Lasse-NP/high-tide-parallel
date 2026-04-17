@@ -8,3 +8,4 @@ from .queue_widget import HTQueueWidget
 from .shortcuts_widget import HTShorcutsWidget, HTShorcutWidget
 from .top_hit_widget import HTTopHitWidget
 from .tracks_list_widget import HTTracksListWidget
+from .queue_item_widget import HTQueueItemWidget

@@ -82,6 +82,8 @@ class HTCardWidget(Adw.BreakpointBin, IDisconnectable):
 
         self._populate()
 
+        self.set_cursor_from_name("pointer")
+
     def _populate(self):
         if isinstance(self.item, MixV2) or isinstance(self.item, Mix):
             self._make_mix_card()

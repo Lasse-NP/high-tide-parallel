@@ -127,6 +127,8 @@ class HTGenericTrackWidget(Gtk.ListBoxRow, IDisconnectable):
         self.add_controller(motion_controller)
         self.play_overlay_button.connect("clicked", self._on_play_clicked)
 
+        self.set_cursor_from_name("pointer")
+
     def _on_menu_activate(self, *args):
         if self.menu_activated:
             return

@@ -1,0 +1,48 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $HTQueueItemWidget: ListBoxRow {
+  selectable: false;
+
+  Adw.BreakpointBin {
+      width-request: 100;
+      height-request: 56;
+
+      Adw.Breakpoint {
+        condition ("max-width: 600px")
+      }
+
+    child: Box {
+      orientation: horizontal;
+      spacing: 12;
+      margin-top: 6;
+      margin-bottom: 6;
+      margin-start: 6;
+      margin-end: 6;
+
+      Image {
+        icon-name: "list-drag-handle-symbolic";
+        valign: center;
+      }
+
+      Image image {
+        pixel-size: 48;
+      }
+
+      Box {
+        orientation: vertical;
+        valign: center;
+
+        Label title_label {
+          halign: start;
+          styles ["heading"]
+        }
+
+        Label artist_label {
+          halign: start;
+          styles ["dim-label"]
+        }
+      }
+    };
+  }
+}

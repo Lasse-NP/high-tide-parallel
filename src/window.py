@@ -20,7 +20,7 @@
 import threading
 from gettext import gettext as _
 from typing import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 
 import tidalapi
 import tidalapi.user as tidal_user
@@ -34,7 +34,7 @@ from .pages import (HTAlbumPage, HTArtistPage, HTCollectionPage, HTExplorePage,
                     HTGenericPage, HTMixPage, HTNotLoggedInPage,
                     HTPlaylistPage)
 from .widgets import (HTGenericTrackWidget, HTLinkLabelWidget, HTLyricsWidget,
-                      HTQueueWidget)
+                      HTQueueWidget, HTQueueItemWidget)
 
 import logging
 logger = logging.getLogger(__name__)
@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 # from .new_playlist import NewPlaylistWindow
 
 GObject.type_register(HTGenericTrackWidget)
+GObject.type_register(HTQueueItemWidget)
 GObject.type_register(HTLinkLabelWidget)
 GObject.type_register(HTQueueWidget)
 GObject.type_register(HTLyricsWidget)
@@ -260,7 +261,7 @@ class HighTideWindow(Adw.ApplicationWindow):
                 self.session.locale = "en_US"
                 user_id = self.secret_store.token_dictionary.get("user-id")
                 if user_id:
-                    self.session.user = tidal_user.User(self.session, user_id=int(user_id))
+                    self.session.user = tidal_user.User(self.session, user_id=int(user_id)).factory()
             else:
                 self.session.load_oauth_session(
                     self.secret_store.token_dictionary["token-type"],

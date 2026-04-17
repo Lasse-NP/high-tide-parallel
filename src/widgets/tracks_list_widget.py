@@ -69,6 +69,8 @@ class HTTracksListWidget(Gtk.Box, IDisconnectable):
 
         self.tracks: List[Track] = []
 
+        self.set_cursor_from_name("pointer")
+
     def set_more_function(self, function: Callable) -> None:
         """Set the function to fetch more items
 
