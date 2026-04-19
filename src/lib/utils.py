@@ -31,6 +31,7 @@ from typing import Any, List
 
 import requests
 from requests.adapters import HTTPAdapter
+from colorthief import ColorThief
 from urllib3.util.retry import Retry
 from gi.repository import Adw, Gdk, Gio, GLib
 
@@ -615,6 +616,16 @@ def get_image_url(item: Any, dimensions: int = 320) -> str | None:
             file.write(picture_data)
 
     return str(file_path)
+
+
+def get_dominant_color(image_path: str) -> tuple[int, int, int] | None:
+
+    try:
+        ct = ColorThief(image_path)
+        return ct.get_color(quality=1)
+    except Exception:
+        logger.exception("Could not get dominant color")
+        return None
 
 
 def add_picture(

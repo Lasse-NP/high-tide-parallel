@@ -79,6 +79,7 @@ class HighTideWindow(Adw.ApplicationWindow):
     quality_label = Gtk.Template.Child()
     toast_overlay = Gtk.Template.Child()
     playing_track_widget = Gtk.Template.Child()
+    player_headerbar = Gtk.Template.Child()
     sidebar_stack = Gtk.Template.Child()
     go_next_button = Gtk.Template.Child()
     go_prev_button = Gtk.Template.Child()
@@ -206,6 +207,12 @@ class HighTideWindow(Adw.ApplicationWindow):
 
         self.video_covers_enabled = self.settings.get_boolean("video-covers")
         self.in_background = False
+
+        self._header_css_provider = Gtk.CssProvider()
+        self.playing_track_widget.get_style_context().add_provider(
+            self._header_css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
 
         self.queue_widget_updated = False
 
@@ -418,6 +425,37 @@ class HighTideWindow(Adw.ApplicationWindow):
             self.queue_widget_updated = True
         else:
             self.queue_widget_updated = False
+
+        threading.Thread(
+            target=self._th_update_header_color,
+            args=(album,)
+        ).start()
+
+    def _th_update_header_color(self, album) -> None:
+        image_path = utils.get_image_url(album)
+        GLib.idle_add(self.update_header_color, image_path)
+
+    def update_header_color(self, image_path: str | None) -> None:
+        if not image_path:
+            self._header_css_provider.load_from_string("")
+            return
+
+        color = utils.get_dominant_color(image_path)
+        if not color:
+            self._header_css_provider.load_from_string("")
+            return
+
+        r, g, b = color
+        css = f"""
+        * {{
+            background: linear-gradient(
+                to right,
+                rgba({r}, {g}, {b}, 0.4),
+                rgba({r}, {g}, {b}, 0.0)
+            );
+        }}
+        """
+        self._header_css_provider.load_from_string(css)
 
     def save_last_playing_thing(self):
         """Save the current playing context to settings for persistence.
