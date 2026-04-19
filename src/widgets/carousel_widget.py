@@ -18,12 +18,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 from typing import Callable
+import logging
 
-from gi.repository import Gtk
+from gi.repository import Gtk, GLib
 
 from ..disconnectable_iface import IDisconnectable
 from ..lib import utils
 from ..widgets.card_widget import HTCardWidget
+
+logger = logging.getLogger(__name__)
 
 
 @Gtk.Template(
@@ -50,6 +53,7 @@ class HTCarouselWidget(Gtk.Box, IDisconnectable):
         IDisconnectable.__init__(self)
         super().__init__()
 
+
         self.signals.append((
             self.next_button,
             self.next_button.connect("clicked", self.carousel_go_next),
@@ -66,6 +70,7 @@ class HTCarouselWidget(Gtk.Box, IDisconnectable):
         ))
 
         self.n_pages = 0
+        self._clone_count = 0
 
         self.title = _title
         self.title_label.set_label(self.title)
@@ -91,19 +96,50 @@ class HTCarouselWidget(Gtk.Box, IDisconnectable):
         Args:
             items_list: List of TIDAL objects to display as cards
         """
-        self.items = items_list
+        self.items = list(items_list)
+        self._build_carousel()
 
-        for index, item in enumerate(self.items):
-            if index >= 8:
-                self.more_button.set_visible(True)
-                break
+    def _build_carousel(self) -> None:
+        # Clear existing
+        while self.carousel.get_n_pages() > 0:
+            self.carousel.remove(self.carousel.get_nth_page(0))
+
+        if not self.items:
+            return
+
+        if len(self.items) >= 8:
+            self.more_button.set_visible(True)
+
+        # Number of clones on each side
+        self._clone_count = min(6, len(self.items))
+
+        # Append clones of last N items at the start
+        for item in self.items[-self._clone_count:]:
             card = HTCardWidget(item)
             self.disconnectables.append(card)
             self.carousel.append(card)
-            self.n_pages = self.carousel.get_n_pages()
 
-            if self.n_pages != 2:
-                self.next_button.set_sensitive(True)
+        # Append real items
+        for item in self.items[:8]:
+            card = HTCardWidget(item)
+            self.disconnectables.append(card)
+            self.carousel.append(card)
+
+        # Append clones of first N items at the end
+        for item in self.items[:self._clone_count]:
+            card = HTCardWidget(item)
+            self.disconnectables.append(card)
+            self.carousel.append(card)
+
+        # Start at the first real item (after the leading clones)
+        GLib.idle_add(self._jump_to_real_start)
+        GLib.idle_add(self._update_button_states)
+
+    def _jump_to_real_start(self) -> None:
+        start_page = self.carousel.get_nth_page(self._clone_count)
+        if start_page:
+            self.carousel.scroll_to(start_page, False)
+
 
     def on_more_clicked(self, *args):
         """Handle "See More" button clicks by navigating to a detailed page"""
@@ -119,39 +155,53 @@ class HTCarouselWidget(Gtk.Box, IDisconnectable):
         page.load()
         utils.navigation_view.push(page)
 
+    def _get_visible_count(self) -> int:
+        """How many cards fit in the current viewport width."""
+        carousel_width = self.get_allocated_width()
+        card_width = 167 + 6  # card width-request + spacing
+        visible = max(1, carousel_width // card_width)
+        logger.debug(f"carousel_width={carousel_width}, card_width={card_width}, visible_count={visible}")
+        return visible
+
+    def _update_button_states(self) -> None:
+        total = self.carousel.get_n_pages()
+        self.prev_button.set_sensitive(total > 1)
+        self.next_button.set_sensitive(total > 1)
+
     def carousel_go_next(self, *args):
         """Navigate to the next page in the carousel"""
-        pos = self.carousel.get_position()
-        total_pages = self.carousel.get_n_pages()
-
-        if pos + 2 >= total_pages:
-            next_pos = total_pages - 1
-        else:
-            next_pos = pos + 2
+        pos = round(self.carousel.get_position())
+        total = self.carousel.get_n_pages()
+        real_count = min(len(self.items), 8)
+        next_pos = pos + 2
 
         next_page = self.carousel.get_nth_page(next_pos)
         if next_page is not None:
             self.carousel.scroll_to(next_page, True)
 
-        self.prev_button.set_sensitive(next_pos > 1)
-        self.next_button.set_sensitive(next_pos < total_pages - 2)
+        if next_pos >= self._clone_count + real_count:
+            real_pos = next_pos - real_count
+            GLib.timeout_add(300, self._silent_jump, real_pos)
 
     def carousel_go_prev(self, *args):
         """Navigate to the previous page in the carousel"""
-        pos = self.carousel.get_position()
-        total_pages = self.carousel.get_n_pages()
-
-        if pos - 2 < 0:
-            prev_pos = 0
-        else:
-            prev_pos = pos - 2
+        pos = round(self.carousel.get_position())
+        real_count = min(len(self.items), 8)
+        prev_pos = pos - 2
 
         prev_page = self.carousel.get_nth_page(prev_pos)
         if prev_page is not None:
             self.carousel.scroll_to(prev_page, True)
 
-        self.prev_button.set_sensitive(prev_pos > 1)
-        self.next_button.set_sensitive(prev_pos < total_pages - 2)
+        if prev_pos < self._clone_count:
+            real_pos = prev_pos + real_count
+            GLib.timeout_add(300, self._silent_jump, real_pos)
+
+    def _silent_jump(self, pos) -> bool:
+        page = self.carousel.get_nth_page(pos)
+        if page:
+            self.carousel.scroll_to(page, False)
+        return False
 
     def remove_item_by_id(self, item_id) -> None:
         for i in range(self.carousel.get_n_pages()):
