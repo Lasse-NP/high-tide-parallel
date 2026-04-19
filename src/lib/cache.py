@@ -92,7 +92,7 @@ class HTCache:
         """
         if playlist_id in self.playlists:
             return self.playlists[playlist_id]
-        playlist = Playlist(self.session, playlist_id)
+        playlist = self.session.playlist(playlist_id)
         self.playlists[playlist_id] = playlist
         return playlist
 

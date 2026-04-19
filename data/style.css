@@ -50,7 +50,7 @@ row:hover .play-overlay image {
 
 .link-text {
   color: #888;
-  text-decoration: underline;
+  text-decoration: none;
   transition: color 0.3s ease-in-out;
   background-color: transparent;
   font-weight: normal;
@@ -83,12 +83,30 @@ row:hover .play-overlay image {
   border-radius: 12px;
 }
 
+.explicit-label-small {
+  padding: 0px;
+  padding-left: 4px;
+  padding-right: 4px;
+  background-color: var(--popover-shade-color);
+  border: 1px solid #fff;
+  border-radius: 4px;
+}
+
 .explicit-label {
   padding: 0px;
-  padding-left: 3px;
-  padding-right: 3px;
+  padding-left: 8px;
+  padding-right: 8px;
   background-color: var(--popover-shade-color);
-  border-radius: 4px;
+  border: 1px solid #fff;
+  border-radius: 6px;
+  transition-property: color, background-color;
+  transition-duration: 0.5s;
+  transition-timing-function: ease-out;
+}
+
+.explicit-label:hover {
+  color: #1e1e22;
+  background-color: #fff;
 }
 
 .lyrics-widget {
@@ -138,9 +156,22 @@ row:hover .play-overlay image {
 .tracks-list-box row:nth-child(odd) {
   background-color: alpha(var(--window-fg-color), 0.05);
 }
+.tracks-list-box row:nth-child(even) {
+  background-color: alpha(var(--window-fg-color), 0.10);
+}
 
-.tracks-list-box row:hover {
-  background-color: alpha(var(--window-fg-color), 0.1);
+.tracks-list-box row:nth-child(odd):hover {
+  background-color: alpha(var(--window-fg-color), 0.12);
+}
+.tracks-list-box row:nth-child(even):hover {
+  background-color: alpha(var(--window-fg-color), 0.17);
+}
+
+.draggable-box row.drop-target-above {
+  border-top: 2px solid var(--accent-color);
+}
+.draggable-box row.drop-target-below {
+  border-bottom: 2px solid var(--accent-color);
 }
 
 .quality-label {

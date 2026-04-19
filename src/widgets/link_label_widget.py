@@ -50,9 +50,10 @@ class HTLinkLabelWidget(Gtk.Label):
         for index, artist in enumerate(artists):
             if index >= 1:
                 label += ", "
-            label += "<a href='artist:{}'>{}</a>".format(
-                artist.id, html.escape(artist.name)
-            )
+
+            label += "<a href='artist:{}'>".format(artist.id)
+            label += "<span underline='none'>{}</span>".format(html.escape(artist.name))
+            label += "</a>"
 
             self.set_markup(label)
 
@@ -61,5 +62,7 @@ class HTLinkLabelWidget(Gtk.Label):
 
         Args:
             album: an Album"""
-        label: str = f"""<a href="album:{album.id}">{html.escape(album.name)}</a>"""
+        label = "<a href='album:{}'><span underline='none'>{}</span></a>".format(
+            album.id, html.escape(album.name)
+        )
         self.set_markup(label)

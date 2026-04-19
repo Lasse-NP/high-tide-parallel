@@ -52,6 +52,7 @@ class HTAutoLoadWidget(Gtk.Box, IDisconnectable):
         self.is_loading = False
 
         self.items = []
+        self.playlist = None
 
         self.items_limit = 50
         self.items_n = 0
@@ -167,7 +168,7 @@ class HTAutoLoadWidget(Gtk.Box, IDisconnectable):
             )
 
         for index, track in enumerate(new_items):
-            listing = HTGenericTrackWidget(track)
+            listing = HTGenericTrackWidget(track, playlist=self.playlist)
             self.disconnectables.append(listing)
             listing.index = index + self.items_n
             self.parent.append(listing)

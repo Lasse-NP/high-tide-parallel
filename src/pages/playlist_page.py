@@ -54,9 +54,9 @@ class HTPlaylistPage(TrackListPage):
         subtitle = _("by {}").format(creator_name)
 
         self._setup_ui(
-            builder,
-            title,
-            subtitle,
-            self.tracks,
+            builder, title, subtitle, self.tracks,
             reload_function=self.item.tracks,
         )
+        self.auto_load.playlist = self.item
+
+

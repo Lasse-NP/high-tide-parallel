@@ -65,12 +65,14 @@ class HTGenericTrackWidget(Gtk.ListBoxRow, IDisconnectable):
 
     index = GObject.Property(type=int, default=0)
 
-    def __init__(self, track):
+    def __init__(self, track, playlist=None):
         IDisconnectable.__init__(self)
         super().__init__()
 
         self.menu_activated = False
         self.track = track
+        self.playlist = playlist
+        self.is_owner = self._check_ownership()
 
         self.signals.append(
             (
@@ -129,6 +131,13 @@ class HTGenericTrackWidget(Gtk.ListBoxRow, IDisconnectable):
 
         self.set_cursor_from_name("pointer")
 
+    def _check_ownership(self) -> bool:
+        if not isinstance(self.playlist, UserPlaylist):
+            return False
+        if not utils.session.user:
+            return False
+        return bool(self.playlist.creator and self.playlist.creator.id == utils.session.user.id)
+
     def _on_menu_activate(self, *args):
         if self.menu_activated:
             return
@@ -149,6 +158,17 @@ class HTGenericTrackWidget(Gtk.ListBoxRow, IDisconnectable):
             ("add-to-my-collection", self._th_add_to_my_collection),
             ("copy-share-url", self._copy_share_url),
         ]
+
+        if self.is_owner:
+            self.track_menu.prepend(
+                _("Remove from playlist"),
+                "trackwidget.remove-from-playlist"
+            )
+            remove_action = Gio.SimpleAction.new("remove-from-playlist", None)
+            self.signals.append(
+                (remove_action, remove_action.connect("activate", self._remove_from_playlist))
+            )
+            self.action_group.add_action(remove_action)
 
         add_to_playlist_action = Gio.SimpleAction.new(
             "add-to-playlist", GLib.VariantType.new("n")
@@ -185,6 +205,13 @@ class HTGenericTrackWidget(Gtk.ListBoxRow, IDisconnectable):
 
     def th_add_to_my_collection(self):
         utils.session.user.favorites.add_track(self.track.id)
+
+    def _remove_from_playlist(self, *args):
+        def _th():
+            self.playlist.remove_by_indices([self.get_index()])
+            GLib.idle_add(self.get_parent().remove, self)
+
+        threading.Thread(target=_th).start()
 
     def _add_to_playlist(self, action, parameter):
         playlist_index = parameter.get_int16()
