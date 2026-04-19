@@ -21,7 +21,7 @@
 import threading
 from gettext import gettext as _
 
-from gi.repository import Gio, GLib, GObject, Gtk
+from gi.repository import Gio, GLib, GObject, Gtk, Gdk
 from tidalapi.playlist import UserPlaylist
 
 from ..disconnectable_iface import IDisconnectable
@@ -129,6 +129,13 @@ class HTGenericTrackWidget(Gtk.ListBoxRow, IDisconnectable):
         self.add_controller(motion_controller)
         self.play_overlay_button.connect("clicked", self._on_play_clicked)
 
+        if self.is_owner:
+            drag_source = Gtk.DragSource()
+            drag_source.set_actions(Gdk.DragAction.MOVE)
+            drag_source.connect("prepare", self._on_drag_prepare)
+            drag_source.connect("drag-begin", self._on_drag_begin)
+            self.add_controller(drag_source)
+
         self.set_cursor_from_name("pointer")
 
     def _check_ownership(self) -> bool:
@@ -141,43 +148,38 @@ class HTGenericTrackWidget(Gtk.ListBoxRow, IDisconnectable):
     def _on_menu_activate(self, *args):
         if self.menu_activated:
             return
-
         self.menu_activated = True
 
-        self.track_menu.prepend(
-            _("Go to track radio"), f"win.push-track-radio-page::{self.track.id}"
-        )
+        if self.is_owner:
+            entries = [(_("Remove from playlist"), "remove-from-playlist", self._remove_from_playlist),
+                       (_("Add to my collection"), "add-to-my-collection", self._th_add_to_my_collection)]
+        else:
+            entries = [
+                (_("Add to my collection"), "add-to-my-collection", self._th_add_to_my_collection),
+            ]
 
-        self.track_menu.prepend(
-            _("Go to album"), f"win.push-album-page::{self.track.album.id}"
-        )
-
-        action_entries = [
-            ("play-next", self._play_next),
-            ("add-to-queue", self._add_to_queue),
-            ("add-to-my-collection", self._th_add_to_my_collection),
-            ("copy-share-url", self._copy_share_url),
+        entries += [
+            (_("Go to album"), f"win.push-album-page::{self.track.album.id}", None),
+            (_("Go to track radio"), f"win.push-track-radio-page::{self.track.id}", None),
+            (_("Play next"), "play-next", self._play_next),
+            (_("Add to queue"), "add-to-queue", self._add_to_queue),
+            (_("Copy share url"), "copy-share-url", self._copy_share_url),
         ]
 
-        if self.is_owner:
-            self.track_menu.prepend(
-                _("Remove from playlist"),
-                "trackwidget.remove-from-playlist"
-            )
-            remove_action = Gio.SimpleAction.new("remove-from-playlist", None)
-            self.signals.append(
-                (remove_action, remove_action.connect("activate", self._remove_from_playlist))
-            )
-            self.action_group.add_action(remove_action)
+        for label, action_name, callback in entries:
+            if callback is not None:
+                action = Gio.SimpleAction.new(action_name, None)
+                self.signals.append((action, action.connect("activate", callback)))
+                self.action_group.add_action(action)
+                self.track_menu.append(label, f"trackwidget.{action_name}")
+            else:
+                self.track_menu.append(label, action_name)
 
         add_to_playlist_action = Gio.SimpleAction.new(
             "add-to-playlist", GLib.VariantType.new("n")
         )
         self.signals.append(
-            (
-                add_to_playlist_action,
-                add_to_playlist_action.connect("activate", self._add_to_playlist),
-            )
+            (add_to_playlist_action, add_to_playlist_action.connect("activate", self._add_to_playlist))
         )
         self.action_group.add_action(add_to_playlist_action)
 
@@ -188,11 +190,6 @@ class HTGenericTrackWidget(Gtk.ListBoxRow, IDisconnectable):
                 "trackwidget.add-to-playlist", GLib.Variant.new_int16(index)
             )
             self.playlists_submenu.insert_item(index, item)
-
-        for name, callback in action_entries:
-            action = Gio.SimpleAction.new(name, None)
-            self.signals.append((action, action.connect("activate", callback)))
-            self.action_group.add_action(action)
 
     def _play_next(self, *args):
         utils.player_object.add_next(self.track)
@@ -233,3 +230,10 @@ class HTGenericTrackWidget(Gtk.ListBoxRow, IDisconnectable):
 
     def _on_play_clicked(self, *args) -> None:
         self.activate()
+
+    def _on_drag_prepare(self, source, x, y):
+        return Gdk.ContentProvider.new_for_value(self.get_index())
+
+    def _on_drag_begin(self, source, drag):
+        paintable = Gtk.WidgetPaintable.new(self)
+        source.set_icon(paintable, self.get_width() // 2, self.get_height() // 2)

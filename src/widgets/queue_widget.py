@@ -21,6 +21,7 @@ from gi.repository import Gtk, Gdk
 
 from ..widgets.generic_track_widget import HTGenericTrackWidget
 from ..widgets.queue_item_widget import HTQueueItemWidget
+from ..lib.draggable_attribute import HTDraggableList
 
 
 @Gtk.Template(resource_path="/io/github/nokse22/high-tide/ui/widgets/queue_widget.ui")
@@ -37,99 +38,6 @@ class HTQueueWidget(Gtk.Box):
     played_songs_box = Gtk.Template.Child()
     queued_songs_box = Gtk.Template.Child()
     next_songs_box = Gtk.Template.Child()
-
-    def _setup_drop_target(self, list_box, player_list, list_type) -> None:
-        for controller in list_box.observe_controllers():
-            if isinstance(controller, Gtk.DropTarget):
-                list_box.remove_controller(controller)
-
-        drop_target = Gtk.DropTarget.new(str, Gdk.DragAction.MOVE)
-        drop_target.connect("drop", self._on_drop, list_box, player_list, list_type)
-        drop_target.connect("motion", self._on_drag_motion, list_box, list_type)
-        drop_target.connect("leave", self._on_drag_leave, list_box)
-        list_box.add_controller(drop_target)
-
-    def _on_drop(self, target, value, x, y, list_box, player_list, list_type) -> bool:
-
-        self._hide_drop_indicator(list_box)
-
-        try:
-            drag_list_type, source_index = value.split(":")
-            source_index = int(source_index)
-        except (ValueError, AttributeError):
-            return False
-
-        if drag_list_type != list_type:
-            return False
-
-        # Find which row we dropped onto based on y coordinate
-        dest_row = list_box.get_row_at_y(int(y))
-        if dest_row is None:
-            dest_index = len(player_list) - 1
-        else:
-            dest_index = int(dest_row.get_name())
-
-        if source_index == dest_index:
-            return False
-
-        # Reorder in the actual player list
-        track = player_list.pop(source_index)
-        player_list.insert(dest_index, track)
-
-        # Refresh the list UI
-        self._rebuild_list(list_box, player_list, list_type)
-        return True
-
-    def _on_drag_motion(self, target, x, y, list_box, list_type):
-        drag_list_type = HTQueueItemWidget.current_drag_list_type
-
-        if drag_list_type is not None and drag_list_type != list_type:
-            self._hide_drop_indicator(list_box)
-            return 0
-
-        self._show_drop_indicator(list_box, int(y))
-        return Gdk.DragAction.MOVE
-
-    def _on_drag_leave(self, target, list_box):
-        self._hide_drop_indicator(list_box)
-
-    def _show_drop_indicator(self, list_box, y) -> None:
-        # Remove existing indicator
-        self._hide_drop_indicator(list_box)
-
-        # Find the row at this y position
-        row = list_box.get_row_at_y(y)
-        if row:
-            index = list_box.get_children().index(row) if hasattr(list_box, 'get_children') else int(row.get_name())
-            row.add_css_class("drop-target-above")
-            list_box._indicator_row = row
-        else:
-            # Past the last row — highlight the last row's bottom
-            last = None
-            i = 0
-            while list_box.get_row_at_index(i):
-                last = list_box.get_row_at_index(i)
-                i += 1
-            if last:
-                last.add_css_class("drop-target-below")
-                list_box._indicator_row = last
-
-    def _hide_drop_indicator(self, list_box) -> None:
-        row = getattr(list_box, '_indicator_row', None)
-        if row:
-            row.remove_css_class("drop-target-above")
-            row.remove_css_class("drop-target-below")
-            list_box._indicator_row = None
-
-    def _rebuild_list(self, list_box, player_list, list_type) -> None:
-        child = list_box.get_row_at_index(0)
-        while child:
-            list_box.remove(child)
-            child = list_box.get_row_at_index(0)
-        for index, track in enumerate(player_list):
-            listing = HTQueueItemWidget(track, list_type=list_type)
-            listing.set_name(str(index))
-            list_box.append(listing)
 
     def update_all(self, player) -> None:
         """Updates played songs, queue and next songs"""
@@ -168,7 +76,12 @@ class HTQueueWidget(Gtk.Box):
                 listing = HTQueueItemWidget(track, list_type="queue")
                 listing.set_name(str(index))
                 self.queued_songs_list.append(listing)
-            self._setup_drop_target(self.queued_songs_list, player.queue, "queue")
+            draggable = HTDraggableList()
+            draggable.setup(
+                self.queued_songs_list,
+                player.queue,
+                row_factory=lambda track, i: HTQueueItemWidget(track, list_type="queue"),
+            )
         else:
             self.queued_songs_box.set_visible(False)
 
@@ -186,6 +99,11 @@ class HTQueueWidget(Gtk.Box):
                 listing = HTQueueItemWidget(track, list_type="next")
                 listing.set_name(str(index))
                 self.next_songs_list.append(listing)
-            self._setup_drop_target(self.next_songs_list, player.tracks_to_play, "next")
+            draggable = HTDraggableList()
+            draggable.setup(
+                self.next_songs_list,
+                player.tracks_to_play,
+                row_factory=lambda track, i: HTQueueItemWidget(track, list_type="next"),
+            )
         else:
             self.next_songs_box.set_visible(False)

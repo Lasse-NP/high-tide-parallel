@@ -25,6 +25,7 @@ from ..disconnectable_iface import IDisconnectable
 from ..lib import utils
 from .card_widget import HTCardWidget
 from .generic_track_widget import HTGenericTrackWidget
+from ..lib.draggable_attribute import HTDraggableList
 
 import logging
 
@@ -156,6 +157,17 @@ class HTAutoLoadWidget(Gtk.Box, IDisconnectable):
             threading.Thread(target=self.th_load_items).start()
         GObject.signal_handler_unblock(self.scrolled_window, self.handler_id)
 
+    def _is_owned_playlist(self) -> bool:
+        from tidalapi.playlist import UserPlaylist
+        if not isinstance(self.playlist, UserPlaylist):
+            return False
+        if not utils.session or not utils.session.user:
+            return False
+        return bool(
+            self.playlist.creator and
+            self.playlist.creator.id == utils.session.user.id
+        )
+
     def _add_tracks(self, new_items):
         if self.parent is None:
             self.parent = Gtk.ListBox(css_classes=["tracks-list-box"])
@@ -167,10 +179,24 @@ class HTAutoLoadWidget(Gtk.Box, IDisconnectable):
                 )
             )
 
+            if self._is_owned_playlist():
+                self.parent.add_css_class("draggable-box")
+                draggable = HTDraggableList()
+                draggable.setup(
+                    self.parent,
+                    self.items,
+                    row_factory=lambda track, i: HTGenericTrackWidget(track, playlist=self.playlist),
+                    on_reorder=lambda src, dst: threading.Thread(
+                        target=self.playlist.move_by_index,
+                        args=(src, dst)
+                    ).start()
+                )
+
         for index, track in enumerate(new_items):
             listing = HTGenericTrackWidget(track, playlist=self.playlist)
             self.disconnectables.append(listing)
             listing.index = index + self.items_n
+            listing.set_name(str(index + self.items_n))
             self.parent.append(listing)
 
     def _add_cards(self, new_items):
