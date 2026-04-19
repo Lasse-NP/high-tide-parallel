@@ -229,6 +229,9 @@ class HighTideWindow(Adw.ApplicationWindow):
         if not self.settings.get_boolean("app-id-change-understood"):
             self.app_id_dialog.present(self)
 
+        if self.get_application().dev_tooltips:
+            self._apply_dev_tooltips(self)
+
     @Gtk.Template.Callback("on_app_id_response_cb")
     def on_app_id_response_cb(self, dialog, response):
         self.app_id_dialog.close()
@@ -883,3 +886,31 @@ class HighTideWindow(Adw.ApplicationWindow):
         action.connect("activate", callback)
         self.add_action(action)
         return action
+
+    def _apply_dev_tooltips(self, widget) -> None:
+        """Developer tool to show component names as you hover over via tooltip."""
+        name = type(widget).__name__
+        gtype = widget.get_name()  # returns the GType name e.g. "GtkButton"
+        template_name = None
+
+        # Try to find the template child name by checking our own attributes
+        for attr_name in dir(self):
+            try:
+                if getattr(self, attr_name) is widget:
+                    template_name = attr_name
+                    break
+            except Exception:
+                pass
+
+        if template_name:
+            tooltip = f"{template_name} ({gtype})"
+        else:
+            tooltip = gtype
+
+        widget.set_tooltip_text(tooltip)
+
+        # Recurse into children
+        child = widget.get_first_child()
+        while child:
+            self._apply_dev_tooltips(child)
+            child = child.get_next_sibling()

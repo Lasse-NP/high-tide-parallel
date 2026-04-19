@@ -267,4 +267,11 @@ class HighTideApplication(Adw.Application):
 def main(version: str) -> int:
     """The application's entry point."""
     app: HighTideApplication = HighTideApplication()
+
+    if "--dev-tooltips" in sys.argv:
+        app.dev_tooltips = True
+        sys.argv.remove("--dev-tooltips")
+    else:
+        app.dev_tooltips = False
+
     return app.run(sys.argv)

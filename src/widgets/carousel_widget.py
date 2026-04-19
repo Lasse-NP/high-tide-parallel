@@ -152,3 +152,37 @@ class HTCarouselWidget(Gtk.Box, IDisconnectable):
 
         self.prev_button.set_sensitive(prev_pos > 1)
         self.next_button.set_sensitive(prev_pos < total_pages - 2)
+
+    def remove_item_by_id(self, item_id) -> None:
+        for i in range(self.carousel.get_n_pages()):
+            card = self.carousel.get_nth_page(i)
+            if hasattr(card, 'item') and card.item and card.item.id == item_id:
+                self.carousel.remove(card)
+                self.n_pages = self.carousel.get_n_pages()
+                self.next_button.set_sensitive(self.n_pages > 2)
+                return
+
+    def update_items(self, new_items) -> None:
+        # Fade out
+        self.set_opacity(0.3)
+
+        # Clear carousel
+        while self.carousel.get_n_pages() > 0:
+            self.carousel.remove(self.carousel.get_nth_page(0))
+
+        self.items = new_items
+        self.n_pages = 0
+
+        for index, item in enumerate(self.items):
+            if index >= 8:
+                self.more_button.set_visible(True)
+                break
+            card = HTCardWidget(item)
+            self.disconnectables.append(card)
+            self.carousel.append(card)
+            self.n_pages = self.carousel.get_n_pages()
+            if self.n_pages != 2:
+                self.next_button.set_sensitive(True)
+
+        # Fade back in
+        self.set_opacity(1.0)

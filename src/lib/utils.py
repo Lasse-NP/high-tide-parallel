@@ -359,10 +359,26 @@ def th_add_to_my_collection(btn: Any, item: Any) -> None:
         item: The TIDAL item to add to favorites
     """
     if isinstance(item, Track):
+        favourite_tracks.insert(0, item)
+    elif isinstance(item, Album):
+        favourite_albums.insert(0, item)
+    elif isinstance(item, Artist):
+        favourite_artists.insert(0, item)
+    elif isinstance(item, Playlist):
+        favourite_playlists.insert(0, item)
+        playlist_and_favorite_playlists.insert(0, item)
+    elif isinstance(item, Mix):
+        favourite_mixes.insert(0, item)
+
+    btn.set_icon_name("heart-filled-symbolic")
+    page = navigation_view.find_page("collection")
+    if page:
+        GLib.idle_add(page.refresh, item, False)
+
+    if isinstance(item, Track):
         result = session.user.favorites.add_track(str(item.id))
     elif isinstance(item, Mix):
-        return  # still not supported
-        result = session.user.favorites.add_mix(str(item.id))
+        return
     elif isinstance(item, Album):
         result = session.user.favorites.add_album(str(item.id))
     elif isinstance(item, Artist):
@@ -373,11 +389,26 @@ def th_add_to_my_collection(btn: Any, item: Any) -> None:
         result = False
 
     if result:
-        btn.set_icon_name("heart-filled-symbolic")
         send_toast(_("Successfully added to my collection"), 2)
-        get_favourites()
     else:
+        # Rollback
+        if isinstance(item, Track):
+            favourite_tracks[:] = [t for t in favourite_tracks if t.id != item.id]
+        elif isinstance(item, Album):
+            favourite_albums[:] = [a for a in favourite_albums if a.id != item.id]
+        elif isinstance(item, Artist):
+            favourite_artists[:] = [a for a in favourite_artists if a.id != item.id]
+        elif isinstance(item, Playlist):
+            favourite_playlists[:] = [p for p in favourite_playlists if p.id != item.id]
+            playlist_and_favorite_playlists[:] = [p for p in playlist_and_favorite_playlists if p.id != item.id]
+        elif isinstance(item, Mix):
+            favourite_mixes[:] = [m for m in favourite_mixes if m.id != item.id]
+
+        btn.set_icon_name("heart-outline-thick-symbolic")
         send_toast(_("Failed to add item to my collection"), 2)
+        page = navigation_view.find_page("collection")
+        if page:
+            GLib.idle_add(page.refresh, item, True)
 
 
 def th_remove_from_my_collection(btn: Any, item: Any) -> None:
@@ -387,11 +418,29 @@ def th_remove_from_my_collection(btn: Any, item: Any) -> None:
         btn: The favorite button widget (for UI updates)
         item: The TIDAL item to remove from favorites
     """
+
+    if isinstance(item, Track):
+        logger.debug(f"Removing {item.id} from favourites, list has {[t.id for t in favourite_tracks]}")
+        favourite_tracks[:] = [t for t in favourite_tracks if t.id != item.id]
+    elif isinstance(item, Album):
+        favourite_albums[:] = [a for a in favourite_albums if a.id != item.id]
+    elif isinstance(item, Artist):
+        favourite_artists[:] = [a for a in favourite_artists if a.id != item.id]
+    elif isinstance(item, Playlist):
+        favourite_playlists[:] = [p for p in favourite_playlists if p.id != item.id]
+        playlist_and_favorite_playlists[:] = [p for p in playlist_and_favorite_playlists if p.id != item.id]
+    elif isinstance(item, Mix):
+        favourite_mixes[:] = [m for m in favourite_mixes if m.id != item.id]
+
+    btn.set_icon_name("heart-outline-thick-symbolic")
+    page = navigation_view.find_page("collection")
+    if page:
+        GLib.idle_add(page.refresh, item, True)
+
     if isinstance(item, Track):
         result = session.user.favorites.remove_track(str(item.id))
     elif isinstance(item, Mix):
-        return  # still not supported
-        result = session.user.favorites.remove_mix(str(item.id))
+        return
     elif isinstance(item, Album):
         result = session.user.favorites.remove_album(str(item.id))
     elif isinstance(item, Artist):
@@ -402,10 +451,26 @@ def th_remove_from_my_collection(btn: Any, item: Any) -> None:
         result = False
 
     if result:
-        btn.set_icon_name("heart-outline-thick-symbolic")
         send_toast(_("Successfully removed from my collection"), 2)
     else:
+        # Rollback — re-add to local list and refresh
+        if isinstance(item, Track):
+            favourite_tracks.append(item)
+        elif isinstance(item, Album):
+            favourite_albums.append(item)
+        elif isinstance(item, Artist):
+            favourite_artists.append(item)
+        elif isinstance(item, Playlist):
+            favourite_playlists.append(item)
+            playlist_and_favorite_playlists.append(item)
+        elif isinstance(item, Mix):
+            favourite_mixes.append(item)
+
+        btn.set_icon_name("heart-filled-symbolic")
         send_toast(_("Failed to remove item from my collection"), 2)
+        page = navigation_view.find_page("collection")
+        if page:
+            GLib.idle_add(page.refresh, item, False)
 
 
 def on_in_to_my_collection_button_clicked(btn: Any, item: Any) -> None:
