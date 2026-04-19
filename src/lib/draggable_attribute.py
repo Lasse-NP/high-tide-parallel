@@ -1,9 +1,10 @@
 
 from gi.repository import Gdk, Gtk
+from ..widgets.queue_item_widget import HTQueueItemWidget
 
 class HTDraggableList:
 
-    def setup(self, list_box, items, row_factory, on_reorder=None):
+    def setup(self, list_box, items, row_factory, on_reorder=None, list_type=None):
         """Set up drag-to-reorder on a list box.
 
         Args:
@@ -16,6 +17,7 @@ class HTDraggableList:
         self._items = items
         self._row_factory = row_factory
         self._on_reorder = on_reorder
+        self._list_type = list_type
         self._indicator_row = None
 
         drop_target = Gtk.DropTarget.new(int, Gdk.DragAction.MOVE)
@@ -26,6 +28,9 @@ class HTDraggableList:
 
     def _on_drop(self, target, value, x, y) -> bool:
         self._hide_drop_indicator()
+
+        if self._list_type and self._get_active_drag_type() != self._list_type:
+            return False
 
         try:
             source_index = int(value)
@@ -40,7 +45,6 @@ class HTDraggableList:
 
         item = self._items.pop(source_index)
         self._items.insert(dest_index, item)
-
         self._rebuild_list()
 
         if self._on_reorder:
@@ -49,8 +53,15 @@ class HTDraggableList:
         return True
 
     def _on_drag_motion(self, target, x, y):
+        if self._list_type and self._get_active_drag_type() != self._list_type:
+            self._hide_drop_indicator()
+            return 0
+
         self._show_drop_indicator(int(y))
         return Gdk.DragAction.MOVE
+
+    def _get_active_drag_type(self):
+        return HTQueueItemWidget.current_drag_list_type
 
     def _on_drag_leave(self, target):
         self._hide_drop_indicator()

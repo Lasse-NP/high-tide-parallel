@@ -57,8 +57,7 @@ class HTQueueItemWidget(Gtk.ListBoxRow, IDisconnectable):
     def _on_drag_prepare(self, source, x, y):
         # Pass the row index as the drag data
         index = int(self.get_name())
-        value = f"{self.list_type}:{index}"
-        return Gdk.ContentProvider.new_for_value(value)
+        return Gdk.ContentProvider.new_for_value(index)
 
     def _on_drag_begin(self, source, drag):
         HTQueueItemWidget.current_drag_list_type = self.list_type

@@ -81,6 +81,7 @@ class HTQueueWidget(Gtk.Box):
                 self.queued_songs_list,
                 player.queue,
                 row_factory=lambda track, i: HTQueueItemWidget(track, list_type="queue"),
+                list_type="queue",
             )
         else:
             self.queued_songs_box.set_visible(False)
@@ -104,6 +105,7 @@ class HTQueueWidget(Gtk.Box):
                 self.next_songs_list,
                 player.tracks_to_play,
                 row_factory=lambda track, i: HTQueueItemWidget(track, list_type="next"),
+                list_type="next",
             )
         else:
             self.next_songs_box.set_visible(False)
