@@ -64,6 +64,17 @@ row:hover .play-overlay image {
   padding: 6px;
 }
 
+.artist-initials-box {
+    border-radius: 12px;
+    background-color: alpha(@accent_color, 0.3);
+}
+
+.artist-initials-label {
+    font-size: 48px;
+    font-weight: bold;
+    color: @accent_color;
+}
+
 .artist-button {
   padding: 0px;
 }
@@ -77,6 +88,14 @@ row:hover .play-overlay image {
 
 .artist-picture {
   border-radius: 100px;
+}
+
+.default-image-box {
+    border-radius: 12px;
+}
+
+.circular-image {
+    border-radius: 50%;
 }
 
 .track-picture {

@@ -25,8 +25,9 @@ from typing import List
 from gi.repository import GLib, Gtk
 
 from tidalapi.album import Album
-from tidalapi.artist import Artist
+from tidalapi.artist import Artist, DEFAULT_ARTIST_IMG
 from tidalapi.media import Track
+from ..widgets.default_image_widget import HTDefaultImageWidget
 
 from ..lib import utils
 from .page import Page
@@ -140,11 +141,19 @@ class HTArtistPage(Page):
         if utils.is_favourited(self.artist):
             follow_button.set_icon_name("heart-filled-symbolic")
 
+        avatar_container = builder.get_object("_avatar_container")
         artist_picture = builder.get_object("_avatar")
 
-        threading.Thread(
-            target=utils.add_image_to_avatar, args=(artist_picture, self.artist)
-        ).start()
+        if self.artist.picture == DEFAULT_ARTIST_IMG:
+            avatar_container.remove(artist_picture)
+            placeholder = HTDefaultImageWidget(self.artist.name, self.artist.id, size=120)
+            placeholder.add_css_class("circular-image")
+            avatar_container.append(placeholder)
+            utils.setup_artist_image(self.artist, placeholder)
+        else:
+            threading.Thread(
+                target=utils.add_image_to_avatar, args=(artist_picture, self.artist)
+            ).start()
 
         builder.get_object("_first_subtitle_label").set_label(_("Artist"))
 

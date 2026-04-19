@@ -36,6 +36,7 @@ from urllib3.util.retry import Retry
 from gi.repository import Adw, Gdk, Gio, GLib
 
 import tidalapi
+from tidalapi.artist import DEFAULT_ARTIST_IMG
 from tidalapi.album import Album
 from tidalapi.artist import Artist
 from tidalapi.mix import Mix
@@ -43,6 +44,7 @@ from tidalapi.playlist import Playlist
 from tidalapi.media import Track
 from tidalapi.types import ItemOrder, OrderDirection
 
+from ..widgets.default_image_widget import HTDefaultImageWidget
 from ..pages import HTAlbumPage, HTArtistPage, HTMixPage, HTPlaylistPage
 from .cache import HTCache
 
@@ -658,6 +660,8 @@ def get_image_url(item: Any, dimensions: int = 320) -> str | None:
     Returns:
         str: Path to the local image file, or None if download failed
     """
+    if hasattr(item, 'picture') and item.picture == DEFAULT_ARTIST_IMG:
+        return None
     if hasattr(item, "id"):
         file_path = Path(f"{IMG_DIR}/{item.id}_{dimensions}.jpg")
     else:
@@ -691,6 +695,23 @@ def get_dominant_color(image_path: str) -> tuple[int, int, int] | None:
     except Exception:
         logger.exception("Could not get dominant color")
         return None
+
+def setup_artist_image(artist, widget: HTDefaultImageWidget) -> None:
+    """Fetch dominant color from artist's top track and apply to widget."""
+
+    def _th():
+        try:
+            top_tracks = artist.get_top_tracks(limit=1)
+            if top_tracks:
+                image_path = get_image_url(top_tracks[0].album)
+                if image_path:
+                    color = get_dominant_color(image_path)
+                    if color:
+                        widget.set_color(color)
+        except Exception:
+            pass  # keep default color on failure
+
+    threading.Thread(target=_th).start()
 
 
 def add_picture(
@@ -738,7 +759,8 @@ def add_image(
         widget: Any, file_path: str | None, cancellable: Gio.Cancellable
     ) -> None:
         if not cancellable.is_cancelled():
-            widget.set_from_file(file_path)
+            if file_path is not None:
+                widget.set_from_file(file_path)
 
     GLib.idle_add(_add_image, widget, get_image_url(item), cancellable)
 
@@ -837,9 +859,16 @@ def add_image_to_avatar(
         avatar_widget: Any, file_path: str | None, cancellable: Gio.Cancellable
     ) -> None:
         if not cancellable.is_cancelled():
-            file = Gio.File.new_for_path(file_path)
-            image = Gdk.Texture.new_from_file(file)
-            widget.set_custom_image(image)
+            if file_path is None:
+                return
+            try:
+                logger.debug(f"Setting avatar image from {file_path}")
+                file = Gio.File.new_for_path(file_path)
+                image = Gdk.Texture.new_from_file(file)
+                widget.set_custom_image(image)
+                logger.debug("Avatar image set successfully")
+            except Exception:
+                logger.exception(f"Failed to set avatar image from {file_path}")
 
     GLib.idle_add(_add_image_to_avatar, widget, get_image_url(item), cancellable)
 

@@ -141,10 +141,15 @@ Box _main {
       }
 
       [avatar]
-      Adw.Avatar _avatar {
-        icon-name: "music-artist-symbolic";
-        overflow: hidden;
-        size: 120;
+      Box _avatar_container {
+          halign: center;
+          valign: center;
+
+          Adw.Avatar _avatar {
+              icon-name: "music-artist-symbolic";
+              overflow: hidden;
+              size: 120;
+          }
       }
 
       [name-label]

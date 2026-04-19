@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-
+import random
 import threading
 from gettext import gettext as _
 from typing import Union
@@ -24,12 +24,13 @@ from typing import Union
 from gi.repository import Adw, GLib, Gtk
 
 from tidalapi.album import Album
-from tidalapi.artist import Artist
+from tidalapi.artist import Artist, DEFAULT_ARTIST_IMG
 from tidalapi.mix import Mix, MixV2
 from tidalapi.playlist import Playlist
 from tidalapi.media import Track
 from tidalapi.page import PageItem
 
+from ..widgets.default_image_widget import HTDefaultImageWidget
 from ..disconnectable_iface import IDisconnectable
 from ..lib import utils
 
@@ -154,7 +155,15 @@ class HTCardWidget(Adw.BreakpointBin, IDisconnectable):
         self.detail_label.set_label(_("Artist"))
         self.track_artist_label.set_visible(False)
 
-        threading.Thread(target=utils.add_image, args=(self.image, self.item)).start()
+        if self.item.picture == DEFAULT_ARTIST_IMG:
+            placeholder = HTDefaultImageWidget(self.item.name, self.item.id, size=155)
+            placeholder.add_css_class("default-image-box")
+            parent = self.image.get_parent()
+            parent.remove(self.image)
+            parent.prepend(placeholder)
+            utils.setup_artist_image(self.item, placeholder)
+        else:
+            threading.Thread(target=utils.add_image, args=(self.image, self.item)).start()
 
     def _make_page_item_card(self) -> None:
         """Configure the card to display a PageItem"""
