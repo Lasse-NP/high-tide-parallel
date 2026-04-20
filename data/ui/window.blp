@@ -453,10 +453,11 @@ template $HighTideWindow: Adw.ApplicationWindow {
                       };
 
                       [overlay]
-                      Adw.Spinner buffer_spinner {
+                      DrawingArea buffer_spinner {
                         visible: false;
                         hexpand: true;
                         vexpand: true;
+                        can-target: false;
                       }
                     };
                   }

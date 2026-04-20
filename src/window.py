@@ -16,12 +16,13 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-
+import math
 import threading
 from gettext import gettext as _
 from typing import Callable
 from datetime import datetime, timezone
 
+import cairo
 import tidalapi
 import tidalapi.user as tidal_user
 from gi.repository import Adw, Gio, GLib, GObject, Gst, Gtk, Xdp
@@ -169,6 +170,11 @@ class HighTideWindow(Adw.ApplicationWindow):
                 self.player_object.can_go_prev
             ),
         )
+
+        self._anim_angle = 0.0
+        self._anim_timer = None
+        self._anim_color = (1.0, 1.0, 1.0)
+        self.buffer_spinner.set_draw_func(self._draw_buffer_animation)
 
         self.player_object.repeat_type = self.settings.get_int("repeat")
         if self.player_object.repeat_type == RepeatType.NONE:
@@ -441,14 +447,17 @@ class HighTideWindow(Adw.ApplicationWindow):
     def update_header_color(self, image_path: str | None) -> None:
         if not image_path:
             self._header_css_provider.load_from_string("")
+            self._anim_color = (1.0, 1.0, 1.0)
             return
 
         color = utils.get_dominant_color(image_path)
         if not color:
             self._header_css_provider.load_from_string("")
+            self._anim_color = (1.0, 1.0, 1.0)
             return
 
         r, g, b = color
+        self._anim_color = (r / 255, g / 255, b / 255)
         css = f"""
         * {{
             background: linear-gradient(
@@ -492,6 +501,67 @@ class HighTideWindow(Adw.ApplicationWindow):
             self.videoplayer.play()
         else:
             self.videoplayer.pause()
+
+    def _draw_buffer_animation(self, area, cr, width, height):
+        margin = 24 # Match Cover Image Margin
+        border_width = 6 # Border Size
+        corner_radius = 24 # Border Radius
+        offset = 8 # Offset - Manual Tweaking
+
+        inset = margin / 2 + border_width / 2 + offset
+        x = inset
+        y = inset
+        w = width - inset * 2
+        h = height - inset * 2
+        r = corner_radius - border_width / 2 - offset
+
+        angle = self._anim_angle
+        cr_r, cr_g, cr_b = self._anim_color
+
+        # Draw two lines opposite each other
+        for i in range(2):
+            a = angle + i * math.pi
+
+            cr.save()
+            cr.new_sub_path()
+            cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2) # Top Left Arc
+            cr.arc(x + w - r, y + r, r, 3 * math.pi / 2, 0) # Top Right Arc
+            cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2) # Bottom Right Arc
+            cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi) # Bottom Left Arc
+            cr.close_path()
+
+            lead_x = width / 2 + (w / 2) * math.cos(a) # Calculate X of head
+            lead_y = height / 2 + (h / 2) * math.sin(a) # Calculate Y of head
+
+            grad = cairo.RadialGradient(lead_x, lead_y, 0, lead_x, lead_y, max(w, h) * 0.8)
+            grad.add_color_stop_rgba(0.0, min(cr_r * 1.5, 1.0), min(cr_g * 1.5, 1.0), min(cr_b * 1.5, 1.0), 0.6)
+            grad.add_color_stop_rgba(0.4, cr_r, cr_g, cr_b, 0.8)
+            grad.add_color_stop_rgba(1.0, 0.0, 0.0, 0.0, 0.0)
+
+            cr.set_source(grad)
+            cr.set_line_width(border_width)
+            cr.stroke()
+            cr.restore()
+
+    def _start_buffer_animation(self):
+        """Start the rotation timer."""
+        if self._anim_timer is not None:
+            return
+        self._anim_timer = GLib.timeout_add(16, self._anim_tick)
+
+    def _stop_buffer_animation(self):
+        """Stop the rotation timer."""
+        if self._anim_timer is not None:
+            GLib.source_remove(self._anim_timer)
+            self._anim_timer = None
+
+    def _anim_tick(self):
+        """Advance angle and queue redraw."""
+        self._anim_angle += 0.10  # radians per frame, adjust for speed.
+        if self._anim_angle > 2 * 3.14159:
+            self._anim_angle -= 2 * 3.14159
+        self.buffer_spinner.queue_draw()
+        return GLib.SOURCE_CONTINUE
 
     def set_quality_label(self):
         """Update the quality label with current track's audio information.
@@ -574,8 +644,10 @@ class HighTideWindow(Adw.ApplicationWindow):
     def on_song_buffering(self, player, percentage):
         if percentage != 100:
             self.buffer_spinner.set_visible(True)
+            self._start_buffer_animation()
         else:
             self.buffer_spinner.set_visible(False)
+            self._stop_buffer_animation()
 
     #
     #   CALLBACKS
