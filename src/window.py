@@ -208,6 +208,7 @@ class HighTideWindow(Adw.ApplicationWindow):
 
         self.queued_uri = None
         self.is_logged_in = False
+        self._collection_page = None
 
         self.videoplayer = Gtk.MediaFile.new()
 
@@ -290,8 +291,17 @@ class HighTideWindow(Adw.ApplicationWindow):
             logger.exception("Error while logging in!")
             GLib.idle_add(self.on_login_failed)
             return
-        utils.get_favourites()
+
         GLib.idle_add(self.on_logged_in)
+        threading.Thread(target=self._th_load_favourites, daemon=True).start()
+
+    def _th_load_favourites(self):
+        utils.get_favourites()
+        GLib.idle_add(self._on_favourites_loaded)
+
+    def _on_favourites_loaded(self):
+        if self._collection_page:
+            self._collection_page.rebuild_if_changed()
 
     def logout(self):
         """Log out the current user and return to login screen.
@@ -308,6 +318,7 @@ class HighTideWindow(Adw.ApplicationWindow):
         """Handle successful user login"""
         logger.info("logged in")
 
+        self._collection_page = HTCollectionPage().load()
         page = HTGenericPage.new_from_function(utils.session.home).load()
         page.set_tag("home")
         self.navigation_view.replace([page])
@@ -690,8 +701,7 @@ class HighTideWindow(Adw.ApplicationWindow):
             self.navigation_view.pop_to_tag("collection")
             return
 
-        page = HTCollectionPage().load()
-        self.navigation_view.push(page)
+        self.navigation_view.push(self._collection_page)
 
     @Gtk.Template.Callback("on_repeat_clicked")
     def on_repeat_clicked(self, *args):
@@ -758,6 +768,8 @@ class HighTideWindow(Adw.ApplicationWindow):
 
     @Gtk.Template.Callback("on_navigation_view_page_popped")
     def on_navigation_view_page_popped_func(self, nav_view, nav_page):
+        if nav_page is self._collection_page:
+            return
         nav_page.disconnect_all()
 
     @Gtk.Template.Callback("on_visible_page_changed")

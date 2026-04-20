@@ -18,7 +18,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 from gettext import gettext as _
+import logging
 
+from gi.repository import GLib
 from ..lib import utils
 from .page import Page
 from ..widgets.carousel_widget import HTCarouselWidget
@@ -29,24 +31,43 @@ from tidalapi.artist import Artist
 from tidalapi.mix import Mix
 from tidalapi.playlist import Playlist
 
+logger = logging.getLogger(__name__)
 
 class HTCollectionPage(Page):
     """A page to display the collection (the user's library)"""
 
     __gtype_name__ = "HTCollectionPage"
 
+    def __init__(self):
+        super().__init__()
+        self._last_counts = None
+
     def _load_async(self) -> None: ...
 
     def _load_finish(self) -> None:
         self.set_tag("collection")
         self.set_title(_("Collection"))
+        self._last_counts = None
+        GLib.idle_add(self._build_carousels)
+        self.connect("showing", self.rebuild_if_changed)
 
-        self._build_carousels()
+    def _current_counts(self):
+        return (
+            len(utils.favourite_mixes),
+            len(utils.playlist_and_favorite_playlists),
+            len(utils.favourite_albums),
+            len(utils.favourite_tracks),
+            len(utils.favourite_artists),
+        )
 
-        self.connect("showing", self._on_showing)
-
-    def _on_showing(self, *args) -> None:
-        self._rebuild_all()
+    def rebuild_if_changed(self, *args) -> None:
+        counts = self._current_counts()
+        logger.debug(f"[COLLECTION] _on_showing fired, current={counts} last={self._last_counts}")
+        if counts != self._last_counts:
+            logger.debug("[COLLECTION] Counts changed, rebuilding all carousels")
+            self._rebuild_all()
+        else:
+            logger.debug("[COLLECTION] Counts unchanged, skipping rebuild")
 
     def refresh(self, item=None, removed=True) -> None:
         """Re-fetch favourites from TIDAL and rebuild a carousel."""
@@ -88,16 +109,21 @@ class HTCollectionPage(Page):
         print(f"Carousel '{title}' not found!")
 
     def _rebuild_all(self) -> None:
+        logger.debug("[COLLECTION] _rebuild_all start")
         child = self.content.get_first_child()
         while child:
             next_child = child.get_next_sibling()
             self.content.remove(child)
             child = next_child
         self._build_carousels()
+        logger.debug("[COLLECTION] _rebuild_all complete")
 
     def _build_carousels(self) -> None:
+        logger.debug("[COLLECTION] _build_carousels start")
         self.new_carousel_for(_("My Mixes and Radios"), utils.favourite_mixes)
         self.new_carousel_for(_("Playlists"), utils.playlist_and_favorite_playlists)
         self.new_carousel_for(_("Albums"), utils.favourite_albums)
         self.new_carousel_for(_("Tracks"), utils.favourite_tracks)
         self.new_carousel_for(_("Artists"), utils.favourite_artists)
+        self._last_counts = self._current_counts()
+        logger.debug(f"[COLLECTION] _build_carousels complete, counts={self._last_counts}")
