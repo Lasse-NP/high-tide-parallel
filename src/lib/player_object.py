@@ -21,6 +21,7 @@ import logging
 import random
 import threading
 import base64
+import time
 from enum import IntEnum
 from gettext import gettext as _
 from pathlib import Path
@@ -145,6 +146,32 @@ class PlayerObject(GObject.GObject):
 
         # next track variables for gapless
         self.next_track: Any | None = None
+        self._next_track_prefetched: bool = False
+
+        # DEBUG DATA: buffering state tracking
+        self._buffering = False
+        self._buffering_started_at: float | None = None
+        self._last_buffer_percent: int = 100
+        self._stream_start_time: float | None = None
+
+    # DEBUG DATA: state-change handler
+    def _on_state_changed(self, bus: Any, message: Any) -> None:
+        """Log pipeline state transitions to catch stalls between PAUSED and PLAYING."""
+        # Only log state changes on the top-level pipeline, not child elements
+        if message.src != self.pipeline:
+            return
+        old_state, new_state, pending_state = message.parse_state_changed()
+        logger.debug(
+            f"[STATE] {Gst.Element.state_get_name(old_state)}"
+            f" → {Gst.Element.state_get_name(new_state)}"
+            f" (pending: {Gst.Element.state_get_name(pending_state)})"
+        )
+        # A pipeline stuck with a non-VOID_PENDING pending state is a stall signal
+        if new_state == Gst.State.PAUSED and pending_state == Gst.State.PLAYING:
+            logger.warning(
+                "[STATE] Pipeline is stuck transitioning PAUSED → PLAYING. "
+                "This may be the cause of the infinite buffering freeze."
+            )
 
     @GObject.Property(type=bool, default=False)
     def playing(self) -> bool:
@@ -175,7 +202,7 @@ class PlayerObject(GObject.GObject):
 
     @repeat_type.setter
     def repeat_type(self, _repeat_type: RepeatType) -> None:
-        self._repeat_type = _repeat_type
+        self._repeat_type = RepeatType(_repeat_type)
         self.notify("repeat-type")
 
     def _setup_audio_sink(self, sink_type: AudioSink) -> None:
@@ -245,6 +272,23 @@ class PlayerObject(GObject.GObject):
 
     def _on_bus_eos(self, *args) -> None:
         """Handle end of stream."""
+        # DEBUG DATA
+        pos_ns = self.query_position()
+        dur_ns = self.query_duration()
+        pos_s = pos_ns / 1_000_000_000 if pos_ns else 0
+        dur_s = dur_ns / 1_000_000_000 if dur_ns else 0
+        track_id = self.playing_track.id if self.playing_track else "none"
+        logger.debug(
+            f"[EOS] track={track_id} position={pos_s:.1f}s duration={dur_s:.1f}s "
+            f"tracks_remaining={len(self._tracks_to_play)} queue={len(self.queue)} "
+            f"gapless_enabled={self.gapless_enabled}"
+        )
+        if dur_s > 0 and pos_s < dur_s * 0.95:
+            logger.warning(
+                f"[EOS] EOS fired at {pos_s:.1f}s but track duration is {dur_s:.1f}s "
+                f"— this is a premature EOS and likely the source of the freeze."
+            )
+
         if not self.tracks_to_play or not self.queue:
             self.pause()
         if not self.gapless_enabled:
@@ -255,6 +299,17 @@ class PlayerObject(GObject.GObject):
         err, debug = message.parse_error()
         logger.error(f"Error: {err.message}")
         logger.error(f"Debug info: {debug}")
+
+        # DEBUG DATA
+        pos_ns = self.query_position()
+        dur_ns = self.query_duration()
+        pos_s = pos_ns / 1_000_000_000 if pos_ns else 0
+        dur_s = dur_ns / 1_000_000_000 if dur_ns else 0
+        track_id = self.playing_track.id if self.playing_track else "none"
+        logger.error(
+            f"[BUS_ERROR] track={track_id} position={pos_s:.1f}s duration={dur_s:.1f}s "
+            f"buffering={self._buffering} last_buffer_pct={self._last_buffer_percent}"
+        )
 
         # Use string compare instead of error codes (Seems be just generic error)
         if "Internal data stream error" in err.message and "not-linked" in debug:
@@ -275,7 +330,49 @@ class PlayerObject(GObject.GObject):
         buffer_per: int = message.parse_buffering()
         mode, avg_in, avg_out, buff_left = message.parse_buffering_stats()
 
-        self.emit("buffering", buffer_per)
+        now = time.monotonic()
+
+        if buffer_per < 100 and not self._buffering:
+            # Buffering just started
+            self._buffering = True
+            self._buffering_started_at = now
+            pos_ns = self.query_position()
+            pos_s = pos_ns / 1_000_000_000 if pos_ns else 0
+            track_id = self.playing_track.id if self.playing_track else "none"
+            logger.warning(
+                f"[BUFFER] Buffering started at {pos_s:.1f}s into track={track_id} "
+                f"pct={buffer_per}% avg_in={avg_in}bps avg_out={avg_out}bps"
+            )
+
+        elif buffer_per < self._last_buffer_percent and self._buffering:
+            # Buffer is draining rather than filling — stall risk
+            logger.warning(
+                f"[BUFFER] Buffer draining: {self._last_buffer_percent}% → {buffer_per}% "
+                f"avg_in={avg_in}bps avg_out={avg_out}bps buff_left={buff_left}ms"
+            )
+
+        elif buffer_per == 100 and self._buffering:
+            # Buffering resolved
+            elapsed = now - self._buffering_started_at if self._buffering_started_at else 0
+            logger.info(
+                f"[BUFFER] Buffering resolved after {elapsed:.1f}s (pct=100%)"
+            )
+            self._buffering = False
+            self._buffering_started_at = None
+
+        elif self._buffering and self._buffering_started_at:
+            # Still buffering — log every 5s so we can see if it's stuck
+            elapsed = now - self._buffering_started_at
+            if int(elapsed) % 5 == 0 and int(elapsed) > 0:
+                logger.warning(
+                    f"[BUFFER] Still buffering after {elapsed:.0f}s — "
+                    f"pct={buffer_per}% avg_in={avg_in}bps avg_out={avg_out}bps "
+                    f"buff_left={buff_left}ms"
+                )
+
+        self._last_buffer_percent = buffer_per
+        if not self._next_track_prefetched:
+            self.emit("buffering", buffer_per)
 
     def set_track(self, track: Track | None = None):
         """Sets the currently Playing track
@@ -296,7 +393,7 @@ class PlayerObject(GObject.GObject):
         self.can_go_next = len(self._tracks_to_play) > 0
         self.can_go_prev = len(self.played_songs) > 0
         self.duration = self.query_duration()
-        # Should only trigger when track is enqued on start without playback
+        # Should only trigger when track is enqueued on start without playback
         if not self.duration:
             # self.duration is microseconds, but self.playing_track.duration is seconds
             self.duration = self.playing_track.duration * 1_000_000_000
@@ -311,6 +408,22 @@ class PlayerObject(GObject.GObject):
             bus: required by Gst
             message: required by Gst
         """
+        # DEBUG DATA
+        self._stream_start_time = time.monotonic()
+        self._buffering = False
+        self._buffering_started_at = None
+        self._last_buffer_percent = 100
+        incoming_id = (
+            self.next_track.id if self.next_track
+            else (self.playing_track.id if self.playing_track else "unknown")
+        )
+        logger.debug(
+            f"[TRACK_START] stream-start signal for track={incoming_id} "
+            f"use_about_to_finish={self.use_about_to_finish} "
+            f"gapless_enabled={self.gapless_enabled} "
+            f"next_track={'set' if self.next_track else 'none'}"
+        )
+
         # apply replaygain first to avoid volume clipping
         # (Idk if that will happen but its the only thing that has effect on audio in here)
         if self.stream:
@@ -408,7 +521,7 @@ class PlayerObject(GObject.GObject):
         elif isinstance(thing, Track):
             tracks_list = [thing]
 
-        self.id_list = [track.id for track in tracks_list]
+        self.id_list = [str(track.id) for track in tracks_list]
 
         return tracks_list
 
@@ -440,16 +553,35 @@ class PlayerObject(GObject.GObject):
         else:
             self.play()
 
-    def play_track(self, track: Track, gapless=False) -> None:
+    def play_track(self, track: Track, gapless=False, prefetched=False) -> None:
         """Play a specific track immediately or enqueue it for gapless playback
 
         Args:
             track: The Track object to play
             gapless: Whether to enqueue the track for gapless playback
         """
-        threading.Thread(target=self._play_track_thread, args=(track, gapless)).start()
+        logger.debug(
+            f"[PLAY_TRACK] Dispatching thread for track={track.id} "
+            f"title='{getattr(track, 'name', '?')}' gapless={gapless}"
+        )
 
-    def _play_track_thread(self, track: Track, gapless=False) -> None:
+        threading.Thread(target=self._play_track_thread, args=(track, gapless, prefetched)).start()
+
+    def _play_prefetched_track(self, track: Track) -> None:
+        """Start a prefetched track non-gaplessly without re-fetching the stream.
+
+        The pipeline already has the URI set from the gapless prefetch.
+        We just need to tear it down and restart it so playback begins from the start.
+        """
+        logger.debug(f"[PIPELINE] Restarting prefetched track={track.id} without re-fetch")
+        self.use_about_to_finish = False
+        self.pipeline.set_state(Gst.State.NULL)
+        self.set_track(track)
+        if self.playing:
+            self.play()
+        self.use_about_to_finish = True
+
+    def _play_track_thread(self, track: Track, gapless=False, prefetched=False) -> None:
         """Thread for loading and playing a track.
 
         Args:
@@ -457,12 +589,35 @@ class PlayerObject(GObject.GObject):
             gapless: Whether to enqueue the track for gapless playback
         """
 
+        if prefetched:
+            logger.debug(f"[FETCH] Skipping fetch for track={track.id} — already prefetched")
+            GLib.idle_add(self._play_prefetched_track, track)
+            return
+
         self.stream = None
         self.manifest = None
 
+        t_start = time.monotonic()
+        logger.debug(
+            f"[FETCH] Starting stream fetch for track={track.id} gapless={gapless}"
+        )
+
         try:
             self.stream = track.get_stream()
+
+            t_stream = time.monotonic()
+            logger.debug(
+                f"[FETCH] get_stream() took {t_stream - t_start:.2f}s "
+                f"mime_type={self.stream.manifest_mime_type}"
+            )
+
             self.manifest = self.stream.get_stream_manifest()
+
+            t_manifest = time.monotonic()
+            logger.debug(
+                f"[FETCH] get_stream_manifest() took {t_manifest - t_stream:.2f}s"
+            )
+
             urls = self.manifest.get_urls()
 
             # When not gapless there is a race condition between get_stream() and on_track_start
@@ -495,9 +650,17 @@ class PlayerObject(GObject.GObject):
                 else:
                     music_url = urls
 
+            logger.debug(
+                f"[FETCH] Total fetch time {time.monotonic() - t_start:.2f}s "
+                f"url_prefix={str(music_url)[:80]}"
+            )
+
             GLib.idle_add(self._play_track_url, track, music_url, gapless)
         except Exception:
-            logger.exception("Error getting track URL")
+            logger.exception(
+                f"[FETCH] Error getting track URL for track={track.id} "
+                f"after {time.monotonic() - t_start:.2f}s"
+            )
 
     def apply_replaygain_tags(self):
         """Apply ReplayGain normalization tags to the current track if enabled."""
@@ -531,6 +694,13 @@ class PlayerObject(GObject.GObject):
 
     def _play_track_url(self, track, music_url, gapless=False):
         """Set up and play track from URL."""
+
+        logger.debug(
+            f"[PIPELINE] Setting URI for track={track.id} gapless={gapless} "
+            f"use_about_to_finish={self.use_about_to_finish} "
+            f"playing={self.playing}"
+        )
+
         if not gapless:
             self.use_about_to_finish = False
             self.pipeline.set_state(Gst.State.NULL)
@@ -541,6 +711,7 @@ class PlayerObject(GObject.GObject):
 
         if gapless:
             self.next_track = track
+            self._next_track_prefetched = True
         else:
             self.set_track(track)
 
@@ -550,18 +721,40 @@ class PlayerObject(GObject.GObject):
         if not gapless:
             self.use_about_to_finish = True
 
+        logger.debug(
+            f"[PIPELINE] URI set complete for track={track.id} "
+            f"pipeline_state={self.pipeline.get_state(0).state}"
+        )
+
     def play_next_gapless(self, playbin: Any):
         """Enqueue the next track for gapless playback.
 
         Args:
             playbin: required by Gst
         """
-        # playbin is need as arg but we access it later over self
+        # DEBUG DATA
+        pos_ns = self.query_position()
+        dur_ns = self.query_duration()
+        pos_s = pos_ns / 1_000_000_000 if pos_ns else 0
+        dur_s = dur_ns / 1_000_000_000 if dur_ns else 0
+        logger.debug(
+            f"[GAPLESS] about-to-finish fired at {pos_s:.1f}s / {dur_s:.1f}s "
+            f"gapless_enabled={self.gapless_enabled} "
+            f"use_about_to_finish={self.use_about_to_finish} "
+            f"tracks_remaining={len(self.tracks_to_play)}"
+        )
+
+        # playbin is need as arg, but we access it later over self
         if self.gapless_enabled and self.use_about_to_finish and self.tracks_to_play:
             GLib.idle_add(self.play_next, True)
             logger.info("Trying gapless playbck")
         else:
-            logger.info("Ignoring about to finish event")
+            logger.info(
+                f"[GAPLESS] Ignoring about-to-finish: "
+                f"gapless_enabled={self.gapless_enabled} "
+                f"use_about_to_finish={self.use_about_to_finish} "
+                f"tracks_to_play={len(self.tracks_to_play)}"
+            )
 
     def play_next(self, gapless=False):
         """Play the next track in the queue or playlist.
@@ -570,17 +763,26 @@ class PlayerObject(GObject.GObject):
             gapless: Whether to enqueue the track in gapless mode
         """
 
+        logger.debug(
+            f"[PLAY_NEXT] gapless={gapless} next_track={'set' if self.next_track else 'none'} "
+            f"repeat={RepeatType(self._repeat_type).name} queue={len(self.queue)} "
+            f"tracks_remaining={len(self._tracks_to_play)} "
+            f"shuffle={self.shuffle}"
+        )
+
         # A track is already enqueued from an about-to-finish
         if self.next_track:
             logger.info("Using already enqueued track from gapless")
             track = self.next_track
+            prefetched = self._next_track_prefetched
             self.next_track = None
+            self._next_track_prefetched = False
 
             # If a track is manually skipped in the last moments
             if not gapless and self.playing_track:
                 self.played_songs.append(self.playing_track)
 
-            self.play_track(track, gapless=gapless)
+            self.play_track(track, gapless=gapless, prefetched=prefetched)
             return
 
         if self._repeat_type == RepeatType.SONG and not gapless:
@@ -605,6 +807,7 @@ class PlayerObject(GObject.GObject):
             self.played_songs = []
 
         if not self._tracks_to_play:
+            logger.info("[PLAY_NEXT] No more tracks — pausing.")
             self.pause()
             return
 
@@ -616,6 +819,7 @@ class PlayerObject(GObject.GObject):
 
         if track_list and len(track_list) > 0:
             track = track_list.pop(0)
+            logger.debug(f"[PLAY_NEXT] Advancing to track={track.id}")
             self.play_track(track, gapless=gapless)
 
     def play_previous(self):
@@ -756,7 +960,7 @@ class PlayerObject(GObject.GObject):
         if enabled and self.playing:
             discord_rpc.set_activity(
                 self.playing_track,
-                self.query_position() / 1_000_000_000,
+                int(self.query_position() / 1_000_000_000),
             )
         elif enabled:
             discord_rpc.set_activity()
