@@ -111,22 +111,23 @@ class HTCarouselWidget(Gtk.Box, IDisconnectable):
             self.more_button.set_visible(True)
 
         # Number of clones on each side
-        self._clone_count = min(6, len(self.items))
+        display_items = self.items[:8]
+        self._clone_count = min(6, len(display_items))
 
         # Append clones of last N items at the start
-        for item in self.items[-self._clone_count:]:
+        for item in display_items[-self._clone_count:]:
             card = HTCardWidget(item)
             self.disconnectables.append(card)
             self.carousel.append(card)
 
         # Append real items
-        for item in self.items[:8]:
+        for item in display_items:
             card = HTCardWidget(item)
             self.disconnectables.append(card)
             self.carousel.append(card)
 
         # Append clones of first N items at the end
-        for item in self.items[:self._clone_count]:
+        for item in display_items[:self._clone_count]:
             card = HTCardWidget(item)
             self.disconnectables.append(card)
             self.carousel.append(card)
