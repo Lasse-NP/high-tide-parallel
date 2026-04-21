@@ -176,6 +176,9 @@ class HighTideWindow(Adw.ApplicationWindow):
         self._anim_color = (1.0, 1.0, 1.0)
         self.buffer_spinner.set_draw_func(self._draw_buffer_animation)
 
+        self.progress_bar.get_adjustment().set_step_increment(0.0001)
+        self.progress_bar.get_adjustment().set_page_increment(0.001)
+
         self.player_object.repeat_type = self.settings.get_int("repeat")
         if self.player_object.repeat_type == RepeatType.NONE:
             self.repeat_button.set_icon_name("media-playlist-consecutive-symbolic")
