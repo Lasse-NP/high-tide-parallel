@@ -809,21 +809,19 @@ class HighTideWindow(Adw.ApplicationWindow):
         position = self.player_object.query_position(default=None)
         if position is None:
             return
-        position = position / Gst.SECOND
-        fraction = 0
+        position_s = position / Gst.SECOND
 
-        self.lyrics_widget.set_time(position)
-
+        self.lyrics_widget.set_time(position_s)
         self.duration_label.set_label(utils.pretty_duration(end_value))
+        self.time_played_label.set_label(utils.pretty_duration(position_s))
 
+        fraction = None
         if end_value != 0:
-            fraction = position / end_value
-        self.small_progress_bar.set_fraction(fraction)
-        self.progress_bar.get_adjustment().set_value(fraction)
-
-        self.previous_fraction = fraction
-
-        self.time_played_label.set_label(utils.pretty_duration(position))
+            fraction = position_s / end_value
+        if fraction:
+            self.small_progress_bar.set_fraction(fraction)
+            self.progress_bar.get_adjustment().set_value(fraction)
+            self.previous_fraction = fraction
 
     def th_add_lyrics_to_page(self):
         try:

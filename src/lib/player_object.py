@@ -435,7 +435,7 @@ class PlayerObject(GObject.GObject):
 
         if self.update_timer:
             GLib.source_remove(self.update_timer)
-        self.update_timer = GLib.timeout_add(1000, self._update_slider_callback)
+        self.update_timer = GLib.timeout_add(16, self._update_slider_callback)
 
         self.seeked_to_end = False
         if self.seek_after_sink_reload:
@@ -536,7 +536,7 @@ class PlayerObject(GObject.GObject):
             )
         if self.update_timer:
             GLib.source_remove(self.update_timer)
-        self.update_timer = GLib.timeout_add(1000, self._update_slider_callback)
+        self.update_timer = GLib.timeout_add(16, self._update_slider_callback)
 
     def pause(self) -> None:
         """Pause playback of the current track."""

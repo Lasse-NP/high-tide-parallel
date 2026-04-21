@@ -27,11 +27,12 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from gettext import gettext as _
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, TYPE_CHECKING
 
 import requests
 from requests.adapters import HTTPAdapter
 from colorthief import ColorThief
+from tidalapi import MixV2
 from urllib3.util.retry import Retry
 from gi.repository import Adw, Gdk, Gio, GLib
 
@@ -45,9 +46,11 @@ from tidalapi.media import Track
 from tidalapi.types import ItemOrder, OrderDirection
 
 from ..widgets.default_image_widget import HTDefaultImageWidget
-from ..pages import HTAlbumPage, HTArtistPage, HTMixPage, HTPlaylistPage
+from ..pages import HTAlbumPage, HTArtistPage, HTMixPage, HTPlaylistPage, HTCollectionPage
 from .cache import HTCache
-from .player_object import PlayerObject
+
+if TYPE_CHECKING:
+    from .player_object import PlayerObject
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +121,7 @@ def get_alsa_devices_from_aplay() -> List[dict]:
     for line in result.stdout.split("\n"):
         # Example String: card 3: KA13 [FiiO KA13], device 0: USB Audio [USB Audio]
         match = re.match(
-            r"^card\s+\d+:\s+([^[]+)\s+\[([^\]]+)\],\s+device\s+(\d+):\s+([^[]+)\s+\[([^\]]+)\]",
+            r"^card\s+\d+:\s+([^[]+)\s+\[([^]]+)],\s+device\s+(\d+):\s+([^[]+)\s+\[([^]]+)]",
             line,
         )
         if match:
@@ -147,7 +150,7 @@ def get_alsa_devices_from_proc() -> List[dict]:
     with open("/proc/asound/cards", "r") as f:
         for line in f:
             # Example String:  3 [KA13           ]: USB-Audio - FiiO KA13
-            match = re.match(r"^\s*(\d+)\s+\[([^\]]+)\]\s*:\s*.+?\s-\s(.+)$", line)
+            match = re.match(r"^\s*(\d+)\s+\[([^]]+)]\s*:\s*.+?\s-\s(.+)$", line)
             if match:
                 index = int(match.group(1))
                 shortname = match.group(2).strip()
@@ -165,7 +168,7 @@ def get_alsa_devices_from_proc() -> List[dict]:
         for line in f:
             # Example String:  19: [ 3- 0]: digital audio playback
             match = re.match(
-                r"^\s*\d+:\s+\[\s*(\d+)-\s*(\d+)\]:\s*digital audio playback", line
+                r"^\s*\d+:\s+\[\s*(\d+)-\s*(\d+)]:\s*digital audio playback", line
             )
             if match:
                 card, device = int(match.group(1)), int(match.group(2))
@@ -360,7 +363,6 @@ def send_toast(toast_title: str, timeout: int) -> None:
     """
     toast_overlay.add_toast(Adw.Toast(title=toast_title, timeout=timeout))
 
-
 def th_add_to_my_collection(btn: Any, item: Any) -> None:
     """Thread function to add a TIDAL item to the user's favorites.
 
@@ -380,10 +382,11 @@ def th_add_to_my_collection(btn: Any, item: Any) -> None:
     elif isinstance(item, Mix):
         favourite_mixes.insert(0, item)
 
-    btn.set_icon_name("heart-filled-symbolic")
-    page = navigation_view.find_page("collection")
-    if page:
-        GLib.idle_add(page.refresh, item, False)
+    if navigation_view:
+        btn.set_icon_name("heart-filled-symbolic")
+        page = navigation_view.find_page("collection")
+        if isinstance(page, HTCollectionPage):
+            GLib.idle_add(page.refresh, item, False)
 
     if isinstance(item, Track):
         result = session.user.favorites.add_track(str(item.id))
@@ -414,11 +417,12 @@ def th_add_to_my_collection(btn: Any, item: Any) -> None:
         elif isinstance(item, Mix):
             favourite_mixes[:] = [m for m in favourite_mixes if m.id != item.id]
 
-        btn.set_icon_name("heart-outline-thick-symbolic")
         send_toast(_("Failed to add item to my collection"), 2)
-        page = navigation_view.find_page("collection")
-        if page:
-            GLib.idle_add(page.refresh, item, True)
+        if navigation_view:
+            btn.set_icon_name("heart-outline-thick-symbolic")
+            page = navigation_view.find_page("collection")
+            if isinstance(page, HTCollectionPage):
+                GLib.idle_add(page.refresh, item, True)
 
 
 def th_remove_from_my_collection(btn: Any, item: Any) -> None:
@@ -442,10 +446,11 @@ def th_remove_from_my_collection(btn: Any, item: Any) -> None:
     elif isinstance(item, Mix):
         favourite_mixes[:] = [m for m in favourite_mixes if m.id != item.id]
 
-    btn.set_icon_name("heart-outline-thick-symbolic")
-    page = navigation_view.find_page("collection")
-    if page:
-        GLib.idle_add(page.refresh, item, True)
+    if navigation_view:
+        btn.set_icon_name("heart-outline-thick-symbolic")
+        page = navigation_view.find_page("collection")
+        if isinstance(page, HTCollectionPage):
+            GLib.idle_add(page.refresh, item, True)
 
     if isinstance(item, Track):
         result = session.user.favorites.remove_track(str(item.id))
@@ -476,11 +481,12 @@ def th_remove_from_my_collection(btn: Any, item: Any) -> None:
         elif isinstance(item, Mix):
             favourite_mixes.append(item)
 
-        btn.set_icon_name("heart-filled-symbolic")
         send_toast(_("Failed to remove item from my collection"), 2)
-        page = navigation_view.find_page("collection")
-        if page:
-            GLib.idle_add(page.refresh, item, False)
+        if navigation_view:
+            btn.set_icon_name("heart-filled-symbolic")
+            page = navigation_view.find_page("collection")
+            if isinstance(page, HTCollectionPage):
+                GLib.idle_add(page.refresh, item, False)
 
 
 def on_in_to_my_collection_button_clicked(btn: Any, item: Any) -> None:
@@ -530,18 +536,23 @@ def get_type(item: Any) -> str:
         item: A TIDAL object (Track, Mix, Album, Artist, or Playlist)
 
     Returns:
-        str: The type as a lowercase string ("track", "mix", "album", "artist", or "playlist")
+        str: The type as a lowercase string ("track", "mix", "mixv2", "album", "artist", or "playlist")
     """
-    if isinstance(item, Track):
-        return "track"
-    elif isinstance(item, Mix):
-        return "mix"
-    elif isinstance(item, Album):
-        return "album"
-    elif isinstance(item, Artist):
-        return "artist"
-    elif isinstance(item, Playlist):
-        return "playlist"
+    match item:
+        case Track():
+            return "track"
+        case Mix():
+            return "mix"
+        case MixV2():
+            return "mixv2"
+        case Album():
+            return "album"
+        case Artist():
+            return "artist"
+        case Playlist():
+            return "playlist"
+        case _:
+            return ""
 
 
 def open_uri(label: str, uri: str) -> bool:
@@ -551,17 +562,32 @@ def open_uri(label: str, uri: str) -> bool:
         label: Display label for the URI (currently unused)
         uri: A URI string in format "type:id" (e.g., "artist:123456")
     """
-    uri_parts = uri.split(":")
 
+    if not navigation_view:
+        logger.warning("Navigation view not available")
+        return False
+
+    uri_parts = uri.split(":")
     match uri_parts[0]:
+        case "track":
+            def _open_track():
+                track = get_track(uri_parts[1])
+                if navigation_view and track.album:
+                    album_page = HTAlbumPage.new_from_id(str(track.album.id)).load()
+                    GLib.idle_add(navigation_view.push, album_page)
+            threading.Thread(target=_open_track).start()
         case "artist":
             page = HTArtistPage.new_from_id(uri_parts[1]).load()
             navigation_view.push(page)
         case "album":
             page = HTAlbumPage.new_from_id(uri_parts[1]).load()
             navigation_view.push(page)
-
-    # TODO implement the rest?
+        case "mix" | "mixv2":
+            page = HTMixPage.new_from_id(uri_parts[1]).load()
+            navigation_view.push(page)
+        case "playlist":
+            page = HTPlaylistPage.new_from_id(uri_parts[1]).load()
+            navigation_view.push(page)
     return True
 
 
@@ -582,24 +608,33 @@ def open_tidal_uri(uri: str) -> None:
     if not content_id:
         raise ValueError(f"Invalid content ID in URI: {uri}")
 
+    if not navigation_view:
+        logger.warning("Navigation view not available")
+        return
+
     match content_type:
+        case "track":
+            def _open_track():
+                track = get_track(content_id)
+                if navigation_view and track.album:
+                    album_page = HTAlbumPage.new_from_id(str(track.album.id)).load()
+                    GLib.idle_add(navigation_view.push, album_page)
+            threading.Thread(target=_open_track).start()
         case "artist":
             page = HTArtistPage.new_from_id(content_id).load()
             navigation_view.push(page)
         case "album":
             page = HTAlbumPage.new_from_id(content_id).load()
             navigation_view.push(page)
-        case "track":
-            threading.Thread(target=th_play_track, args=(content_id,)).start()
-        case "mix":
-            page = HTMixPage(content_id).load()
+        case "mix" | "mixv2":
+            page = HTMixPage.new_from_id(content_id).load()
             navigation_view.push(page)
         case "playlist":
-            page = HTPlaylistPage(content_id).load()
+            page = HTPlaylistPage.new_from_id(content_id).load()
             navigation_view.push(page)
         case _:
             logger.warning(f"Unsupported content type: {content_type}")
-            return False
+            return
 
 
 def th_play_track(track_id: str) -> None:
@@ -613,29 +648,27 @@ def th_play_track(track_id: str) -> None:
     player_object.play_this([track])
 
 
-def pretty_duration(secs: int | None) -> str:
+def pretty_duration(secs: float | None) -> str:
     """Format a duration in seconds to a human-readable string.
 
     Args:
-        secs (int): Duration in seconds
+        secs (float): Duration in seconds (float allows millisecond precision)
 
     Returns:
-        str: Formatted duration string (MM:SS or HH:MM:SS for durations over an hour)
+        str: Formatted duration string (MM:SS.mmm or HH:MM:SS.mmm for durations over an hour)
     """
     if not secs:
-        return "00:00"
+        return "00:00.000"
 
-    hours = secs // 3600
-    minutes = (secs % 3600) // 60
-    seconds = secs % 60
+    hours = int(secs // 3600)
+    minutes = int((secs % 3600) // 60)
+    seconds = int(secs % 60)
+    ms = int((secs % 1) * 1000)
 
     if hours > 0:
-        return f"{int(hours)}:{int(minutes):02}:{int(seconds):02}"
+        return f"{hours}:{minutes:02}:{seconds:02}.{ms:03}"
     else:
-        return f"{int(minutes):02}:{int(seconds):02}"
-
-    return "00:00"
-
+        return f"{minutes:02}:{seconds:02}.{ms:03}"
 
 def get_best_dimensions(widget: Any) -> int:
     """Determine the best image dimensions for a widget.
