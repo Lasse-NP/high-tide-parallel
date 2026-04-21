@@ -925,6 +925,12 @@ class PlayerObject(GObject.GObject):
         Returns:
             int: Position in nanoseconds, or default value if query failed
         """
+        # stays locked at the scrubbed location instead of twitching backwards.
+        if getattr(self, "_pending_seek_fraction", None) is not None:
+            duration = self.query_duration()
+            if duration:
+                return int(self._pending_seek_fraction * duration)
+
         success, position = self.playbin.query_position(Gst.Format.TIME)
         return position if success else default
 
@@ -942,13 +948,40 @@ class PlayerObject(GObject.GObject):
             self.seeked_to_end = True
             self.play_next()
             return
-        position = int(seek_fraction * self.query_duration())
-        self.playbin.seek_simple(
-            Gst.Format.TIME, Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT, position
-        )
 
-        if self.discord_rpc_enabled:
-            discord_rpc.set_activity(self.playing_track, position // 1_000_000_000)
+        # Store the latest requested seek fraction
+        self._pending_seek_fraction = seek_fraction
+
+        # If there's already a delayed seek pending, cancel it
+        if getattr(self, "_seek_timer", None):
+            GLib.source_remove(self._seek_timer)
+
+        # Schedule the seek execution for a short time in the future
+        # This absorbs rapid consecutive requests so GStreamer's dashdemux doesn't get locked up
+        self._seek_timer = GLib.timeout_add(150, self._execute_pending_seek)
+
+    def _execute_pending_seek(self):
+        """Actually sends the seek command to the GStreamer pipeline."""
+        self._seek_timer = None
+        if not hasattr(self, "_pending_seek_fraction") or self._pending_seek_fraction is None:
+            return GLib.SOURCE_REMOVE
+
+        seek_fraction = self._pending_seek_fraction
+        self._pending_seek_fraction = None
+
+        duration = self.query_duration()
+        if duration > 0:
+            position = int(seek_fraction * duration)
+            self.playbin.seek_simple(
+                Gst.Format.TIME,
+                Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT,
+                position
+            )
+
+            if self.discord_rpc_enabled:
+                discord_rpc.set_activity(self.playing_track, position // 1_000_000_000)
+
+        return GLib.SOURCE_REMOVE
 
     def set_discord_rpc(self, enabled: bool = True):
         """Enable or disable Discord Rich Presence integration.
