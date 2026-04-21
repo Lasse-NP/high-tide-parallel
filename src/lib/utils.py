@@ -59,7 +59,13 @@ favourite_playlists: List[Playlist] = []
 playlist_and_favorite_playlists: List[Playlist] = []
 user_playlists: List[Playlist] = []
 
+navigation_view: Adw.NavigationView | None = None
 player_object: PlayerObject | None = None
+session: tidalapi.Session | None = None
+toast_overlay: Adw.ToastOverlay | None = None
+cache: HTCache | None = None
+CACHE_DIR: str = ""
+IMG_DIR: str = ""
 
 def init() -> None:
     """Initialize the utils module by setting up cache directories and global objects.
