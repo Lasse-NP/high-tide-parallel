@@ -47,6 +47,7 @@ from tidalapi.types import ItemOrder, OrderDirection
 from ..widgets.default_image_widget import HTDefaultImageWidget
 from ..pages import HTAlbumPage, HTArtistPage, HTMixPage, HTPlaylistPage
 from .cache import HTCache
+from .player_object import PlayerObject
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ favourite_playlists: List[Playlist] = []
 playlist_and_favorite_playlists: List[Playlist] = []
 user_playlists: List[Playlist] = []
 
+player_object: PlayerObject | None = None
 
 def init() -> None:
     """Initialize the utils module by setting up cache directories and global objects.

@@ -318,15 +318,15 @@ class HighTideWindow(Adw.ApplicationWindow):
         """Handle successful user login"""
         logger.info("logged in")
 
-        self._collection_page = HTCollectionPage().load()
+
         page = HTGenericPage.new_from_function(utils.session.home).load()
         page.set_tag("home")
         self.navigation_view.replace([page])
-
         self.player_lyrics_queue.set_sensitive(True)
         self.navigation_buttons.set_sensitive(True)
 
         threading.Thread(target=self.th_set_last_playing_song, args=()).start()
+        self._collection_page = HTCollectionPage().load()
 
         self.is_logged_in = True
 

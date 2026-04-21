@@ -31,7 +31,7 @@ from gi.repository import GLib, GObject, Gst
 
 from tidalapi.album import Album
 from tidalapi.artist import Artist
-from tidalapi.mix import Mix
+from tidalapi.mix import Mix, MixV2
 from tidalapi.playlist import Playlist
 from tidalapi.media import Track, ManifestMimeType
 
@@ -449,7 +449,7 @@ class PlayerObject(GObject.GObject):
             GLib.timeout_add(2000, self.previous_timer_callback)
 
     def play_this(
-        self, thing: Union[Mix, Album, Playlist, List[Track], Track], index: int = 0
+        self, thing: Union[Mix, MixV2, Album, Playlist, List[Track], Track], index: int = 0
     ) -> None:
         """Play tracks from a mix, album, playlist, or artist.
 
@@ -484,7 +484,7 @@ class PlayerObject(GObject.GObject):
             self.play_track(track)
 
     def shuffle_this(
-        self, thing: Union[Mix, Album, Playlist, List[Track], Track]
+        self, thing: Union[Mix, MixV2, Album, Playlist, List[Track], Track]
     ) -> None:
         """Same as play_this, but enables shuffle mode.
 
@@ -496,7 +496,7 @@ class PlayerObject(GObject.GObject):
         self.shuffle = True
 
     def get_track_list(
-        self, thing: Union[Mix, Album, Playlist, Artist, List[Track], Track]
+        self, thing: Union[Mix, MixV2, Album, Playlist, Artist, List[Track], Track]
     ) -> List[Track]:
         """Convert various sources into a list of tracks.
 
@@ -508,7 +508,7 @@ class PlayerObject(GObject.GObject):
         """
         tracks_list: List[Track] | None = None
 
-        if isinstance(thing, Mix):
+        if isinstance(thing, (Mix, MixV2)):
             tracks_list = thing.items()
         elif isinstance(thing, Album):
             tracks_list = thing.tracks()
