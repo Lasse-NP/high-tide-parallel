@@ -21,8 +21,6 @@ from ..disconnectable_iface import IDisconnectable
 from ..widgets import HTAutoLoadWidget
 from .page import Page
 
-from gi.repository import GLib
-
 class HTFromFunctionPage(Page):
     """Used to display lists of albums/artists/mixes/playlists and tracks
     from a request function"""
@@ -48,7 +46,7 @@ class HTFromFunctionPage(Page):
     def _load_finish(self) -> None: ...
 
     def set_function(self, function) -> None:
-        self._function = function
+        self.auto_load.set_function(function)
 
     def set_items(self, items) -> None:
         self.auto_load.set_items(items)
