@@ -20,13 +20,13 @@ import threading
 from gettext import gettext as _
 from typing import Union, cast
 
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, GLib, Gtk, Gio, Gdk
 
 from tidalapi import PlaylistCreator
 from tidalapi.album import Album
 from tidalapi.artist import Artist, DEFAULT_ARTIST_IMG
 from tidalapi.mix import Mix, MixV2
-from tidalapi.playlist import Playlist
+from tidalapi.playlist import Playlist, UserPlaylist
 from tidalapi.media import Track
 from tidalapi.page import PageItem
 
@@ -51,6 +51,8 @@ class HTCardWidget(Adw.BreakpointBin, IDisconnectable):
     click_gesture = Gtk.Template.Child()
     title_label = Gtk.Template.Child()
     detail_label = Gtk.Template.Child()
+    card_menu = Gtk.Template.Child()
+    _context_menu_button = Gtk.Template.Child()
 
     track_artist_label = Gtk.Template.Child()
 
@@ -82,6 +84,19 @@ class HTCardWidget(Adw.BreakpointBin, IDisconnectable):
         self.action: str | None = None
 
         self._populate()
+
+        self._menu_activated = False
+        self._action_group = Gio.SimpleActionGroup()
+        self.insert_action_group("cardwidget", self._action_group)
+
+        self._popover = Gtk.PopoverMenu.new_from_model(self.card_menu)
+        self._popover.set_parent(self)
+        self._popover.set_has_arrow(False)
+
+        right_click = Gtk.GestureClick.new()
+        right_click.set_button(3)
+        right_click.connect("pressed", self._on_right_click)
+        self.add_controller(right_click)
 
         self.set_cursor_from_name("pointer")
 
@@ -189,6 +204,102 @@ class HTCardWidget(Adw.BreakpointBin, IDisconnectable):
             GLib.idle_add(self._populate)
 
         threading.Thread(target=_get_item).start()
+
+    def _on_menu_activate(self):
+        if self._menu_activated:
+            return
+        self._menu_activated = True
+
+        if isinstance(self.item, Album):
+            self.card_menu.append(_("Go to album"), f"win.push-album-page::{self.item.id}")
+        elif isinstance(self.item, Artist):
+            self.card_menu.append(_("Go to artist"), f"win.push-artist-page::{self.item.id}")
+        elif isinstance(self.item, Playlist):
+            self.card_menu.append(_("Go to playlist"), f"win.push-playlist-page::{self.item.id}")
+
+            add_to_playlist_submenu = Gio.Menu.new()
+            for index, playlist in enumerate(utils.user_playlists):
+                item = Gio.MenuItem.new()
+                item.set_label(playlist.name)
+                item.set_action_and_target_value(
+                    "cardwidget.add-to-playlist", GLib.Variant.new_int16(index)
+                )
+                add_to_playlist_submenu.append_item(item)
+
+            add_to_playlist_action = Gio.SimpleAction.new("add-to-playlist", GLib.VariantType.new("n"))
+            add_to_playlist_action.connect("activate", self._add_to_playlist)
+            self._action_group.add_action(add_to_playlist_action)
+
+            self.card_menu.append_submenu(_("Add to a playlist"), add_to_playlist_submenu)
+        elif isinstance(self.item, (Mix, MixV2)):
+            self.card_menu.append(_("Go to mix"), f"win.push-mix-page::{self.item.id}")
+        elif isinstance(self.item, Track):
+            self.card_menu.append(_("Go to album"), f"win.push-album-page::{self.item.album.id}")
+            self.card_menu.append(_("Go to track radio"), f"win.push-track-radio-page::{self.item.id}")
+
+            play_next = Gio.SimpleAction.new("play-next", None)
+            play_next.connect("activate", lambda *_: utils.player_object.add_next(self.item))
+            self._action_group.add_action(play_next)
+            self.card_menu.append(_("Play next"), "cardwidget.play-next")
+
+            add_to_queue = Gio.SimpleAction.new("add-to-queue", None)
+            add_to_queue.connect("activate", lambda *_: utils.player_object.add_to_queue(self.item))
+            self._action_group.add_action(add_to_queue)
+            self.card_menu.append(_("Add to queue"), "cardwidget.add-to-queue")
+
+            add_to_playlist_submenu = Gio.Menu.new()
+            for index, playlist in enumerate(utils.user_playlists):
+                item = Gio.MenuItem.new()
+                item.set_label(playlist.name)
+                item.set_action_and_target_value(
+                    "cardwidget.add-to-playlist", GLib.Variant.new_int16(index)
+                )
+                add_to_playlist_submenu.append_item(item)
+
+            add_to_playlist_action = Gio.SimpleAction.new("add-to-playlist", GLib.VariantType.new("n"))
+            add_to_playlist_action.connect("activate", self._add_to_playlist)
+            self._action_group.add_action(add_to_playlist_action)
+
+            self.card_menu.append_submenu(_("Add to a playlist"), add_to_playlist_submenu)
+
+        if not isinstance(self.item, Artist):
+            add_to_col = Gio.SimpleAction.new("add-to-collection", None)
+            add_to_col.connect("activate", lambda *_: threading.Thread(
+                target=utils.th_add_to_my_collection, args=(None, self.item)
+            ).start())
+            self._action_group.add_action(add_to_col)
+            self.card_menu.append(_("Add to my collection"), "cardwidget.add-to-collection")
+
+        if isinstance(self.item, (Track, Album, Artist, Playlist)):
+            copy_share = Gio.SimpleAction.new("copy-share-url", None)
+            copy_share.connect("activate", lambda *_: utils.share_this(self.item))
+            self._action_group.add_action(copy_share)
+            self.card_menu.append(_("Copy share URL"), "cardwidget.copy-share-url")
+
+    def _on_right_click(self, gesture, n_press, x, y) -> None:
+        if isinstance(self.item, PageItem):
+            return
+        self._on_menu_activate()
+        rect = Gdk.Rectangle()
+        rect.x = int(x) + 80
+        rect.y = int(y)
+        rect.width = 1
+        rect.height = 1
+        self._popover.set_pointing_to(rect)
+        self._popover.popup()
+
+    def _add_to_playlist(self, action, parameter):
+        playlist_index = parameter.get_int16()
+        selected_playlist = utils.user_playlists[playlist_index]
+        if isinstance(selected_playlist, UserPlaylist):
+            if isinstance(self.item, Playlist):
+                def _th():
+                    tracks = self.item.tracks()
+                    selected_playlist.add([t.id for t in tracks])
+
+                threading.Thread(target=_th).start()
+            else:
+                selected_playlist.add([self.item.id])
 
     def _on_click(self, *_) -> None:
         """Handle click events on the card.

@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-
+import inspect
 import threading
 from gettext import gettext as _
 from ..lib import utils
@@ -41,7 +41,13 @@ class TrackListPage(Page):
         self.auto_load.set_scrolled_window(self.scrolled_window)
         self.auto_load.set_items(tracks)
         if reload_function:
-            self.auto_load.set_function(reload_function)
+            try:
+                sig = inspect.signature(reload_function)
+                params = sig.parameters
+                if "limit" in params and "offset" in params:
+                    self.auto_load.set_function(reload_function)
+            except (ValueError, TypeError):
+                pass
 
         builder.get_object("_title_label").set_label(title)
         builder.get_object("_first_subtitle_label").set_label(subtitle)

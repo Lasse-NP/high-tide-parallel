@@ -295,8 +295,8 @@ class HighTideWindow(Adw.ApplicationWindow):
             GLib.idle_add(self.on_login_failed)
             return
 
+        utils.get_favourites()
         GLib.idle_add(self.on_logged_in)
-        threading.Thread(target=self._th_load_favourites, daemon=True).start()
 
     def _th_load_favourites(self):
         utils.get_favourites()

@@ -129,6 +129,15 @@ class HTGenericTrackWidget(Gtk.ListBoxRow, IDisconnectable):
         self.add_controller(motion_controller)
         self.play_overlay_button.connect("clicked", self._on_play_clicked)
 
+        self._popover = Gtk.PopoverMenu.new_from_model(self.track_menu)
+        self._popover.set_parent(self)
+        self._popover.set_has_arrow(False)
+
+        right_click = Gtk.GestureClick.new()
+        right_click.set_button(3)
+        right_click.connect("pressed", self._on_right_click)
+        self.add_controller(right_click)
+
         if self.is_owner:
             drag_source = Gtk.DragSource()
             drag_source.set_actions(Gdk.DragAction.MOVE)
@@ -144,6 +153,16 @@ class HTGenericTrackWidget(Gtk.ListBoxRow, IDisconnectable):
         if not utils.session.user:
             return False
         return bool(self.playlist.creator and self.playlist.creator.id == utils.session.user.id)
+
+    def _on_right_click(self, gesture, n_press, x, y) -> None:
+        self._on_menu_activate()  # ensure menu items are populated
+        rect = Gdk.Rectangle()
+        rect.x = int(x) + 80
+        rect.y = int(y)
+        rect.width = 1
+        rect.height = 1
+        self._popover.set_pointing_to(rect)
+        self._popover.popup()
 
     def _on_menu_activate(self, *args):
         if self.menu_activated:
