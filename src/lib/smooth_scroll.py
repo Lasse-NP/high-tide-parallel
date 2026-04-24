@@ -20,7 +20,7 @@ class SmoothScroller:
         if not utils.smooth_scroll_enabled:
             return False
         adj = self._scrolled_window.get_vadjustment()
-        step = adj.get_page_size() * 0.15
+        step = adj.get_page_size() * 0.10
         self._target_value = max(
             adj.get_lower(),
             min(adj.get_upper() - adj.get_page_size(),
