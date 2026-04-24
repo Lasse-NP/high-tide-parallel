@@ -74,7 +74,7 @@ class HTGenericPage(Page):
         self.page = self.function()
 
     def _load_finish(self) -> None:
-        self.set_title(self.page.title or "")
+        self.set_title(self.page.title or _("High Tide"))
 
         for category in self.page.categories:
             items = [

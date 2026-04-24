@@ -35,6 +35,7 @@ class TrackListPage(Page):
     def _setup_ui(
         self, builder, title, subtitle, tracks, reload_function=None, hide_share=False
     ):
+        self.set_title(title)
         self.append(builder.get_object("_main"))
 
         self.auto_load = builder.get_object("_auto_load")

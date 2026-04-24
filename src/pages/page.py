@@ -103,7 +103,7 @@ class Page(Adw.NavigationPage, IDisconnectable):
             try:
                 self._load_async()
             except Exception:
-                logger.exception("Error while getting Page")
+                logger.exception(f"[PAGE] Error while getting Page in {type(self).__name__}")
                 return
 
             GLib.idle_add(_loaded)
