@@ -49,6 +49,7 @@ class HTGenericTrackWidget(Gtk.ListBoxRow, IDisconnectable):
     image = Gtk.Template.Child()
     play_revealer = Gtk.Template.Child()
     play_overlay_button = Gtk.Template.Child()
+    track_progress_bar = Gtk.Template.Child()
 
     track_title_label = Gtk.Template.Child()
     track_duration_label = Gtk.Template.Child()
@@ -245,11 +246,29 @@ class HTGenericTrackWidget(Gtk.ListBoxRow, IDisconnectable):
         super().add_css_class(css_class)
         if css_class == "playing-track":
             self.play_revealer.set_reveal_child(True)
+            self.track_progress_bar.set_visible(True)
+            self._slider_handler = utils.player_object.connect(
+                "update-slider", self._on_update_slider
+            )
 
     def remove_css_class(self, css_class: str) -> None:
         super().remove_css_class(css_class)
         if css_class == "playing-track":
             self.play_revealer.set_reveal_child(False)
+            self.track_progress_bar.set_visible(False)
+            self.track_progress_bar.set_size_request(0, -1)
+            if hasattr(self, "_slider_handler") and self._slider_handler:
+                utils.player_object.disconnect(self._slider_handler)
+                self._slider_handler = None
+
+    def _on_update_slider(self, player) -> None:
+        duration = player.query_duration()
+        position = player.query_position(default=0)
+        if duration and duration > 0:
+            fraction = position / duration
+            total_width = self.get_allocated_width()
+            width = min(int(total_width * fraction), total_width)
+            self.track_progress_bar.set_size_request(width, -1)
 
     def _on_hover_enter(self, *args) -> None:
         self.play_revealer.set_reveal_child(True)

@@ -4,24 +4,27 @@ using Adw 1;
 template $HTGenericTrackWidget: ListBoxRow {
   selectable: false;
 
-  Adw.BreakpointBin {
-    width-request: 100;
-    height-request: 56;
+  child: Overlay {
+    overflow: hidden;
 
-    Adw.Breakpoint {
-      condition ("max-width: 600px")
+    child: Adw.BreakpointBin {
+      width-request: 100;
+      height-request: 56;
 
-      setters {
-        _grid.visible: false;
-        _narrow_box.visible: true;
+      Adw.Breakpoint {
+        condition ("max-width: 600px")
+
+        setters {
+          _grid.visible: false;
+          _narrow_box.visible: true;
+        }
       }
-    }
 
-    child: Box {
-      margin-start: 6;
-      margin-end: 6;
+      child: Box {
+        margin-start: 6;
+        margin-end: 6;
 
-      Overlay image_overlay {
+        Overlay image_overlay {
           margin-end: 12;
 
           child: Image image {
@@ -53,123 +56,137 @@ template $HTGenericTrackWidget: ListBoxRow {
           }
         }
 
-      Grid _grid {
-        column-homogeneous: true;
-        column-spacing: 6;
-        margin-end: 12;
-        hexpand: true;
+        Grid _grid {
+          column-homogeneous: true;
+          column-spacing: 6;
+          margin-end: 12;
+          hexpand: true;
 
-        $HTLinkLabelWidget track_album_label {
-          xalign: "0";
-          ellipsize: "3";
+          $HTLinkLabelWidget track_album_label {
+            xalign: "0";
+            ellipsize: "3";
 
-          layout {
-            column: "5";
-            column-span: "1";
-            row: "0";
+            layout {
+              column: "5";
+              column-span: "1";
+              row: "0";
+            }
+          }
+
+          Box {
+            layout {
+              column: "0";
+              column-span: "2";
+              row: "0";
+            }
+
+            Label track_title_label {
+              styles [
+                "title-4",
+              ]
+
+              ellipsize: end;
+              label: _("Title");
+              vexpand: true;
+              xalign: 0.0;
+            }
+
+            Label explicit_label {
+              label: "E";
+
+              styles [
+                "explicit-label-small",
+              ]
+
+              visible: false;
+              valign: center;
+              margin-start: 6;
+            }
+          }
+
+          $HTLinkLabelWidget artist_label {
+            xalign: "0";
+            ellipsize: "3";
+
+            layout {
+              column: "3";
+              column-span: "1";
+              row: "0";
+            }
           }
         }
 
-        Box {
-          layout {
-            column: "0";
-            column-span: "2";
-            row: "0";
+        Box _narrow_box {
+          orientation: vertical;
+          visible: false;
+          hexpand: true;
+
+          Box {
+            Label {
+              label: bind track_title_label.label;
+
+              styles [
+                "title-4",
+              ]
+
+              ellipsize: end;
+              vexpand: true;
+              xalign: 0.0;
+            }
+
+            Label {
+              visible: bind explicit_label.visible;
+              label: "E";
+
+              styles [
+                "explicit-label",
+              ]
+
+              valign: center;
+              margin-start: 6;
+            }
           }
 
-          Label track_title_label {
-            styles [
-              "title-4",
-            ]
-
-            ellipsize: end;
-            label: _("Title");
-            vexpand: true;
-            xalign: 0.0;
-          }
-
-          Label explicit_label {
-            label: "E";
-
-            styles [
-              "explicit-label-small",
-            ]
-
-            visible: false;
-            valign: center;
-            margin-start: 6;
-          }
-        }
-
-        $HTLinkLabelWidget artist_label {
-          xalign: "0";
-          ellipsize: "3";
-
-          layout {
-            column: "3";
-            column-span: "1";
-            row: "0";
-          }
-        }
-      }
-
-      Box _narrow_box {
-        orientation: vertical;
-        visible: false;
-        hexpand: true;
-
-        Box {
-          Label {
-            label: bind track_title_label.label;
-
-            styles [
-              "title-4",
-            ]
-
-            ellipsize: end;
-            vexpand: true;
-            xalign: 0.0;
-          }
-
-          Label {
-            visible: bind explicit_label.visible;
-            label: "E";
-
-            styles [
-              "explicit-label",
-            ]
-
-            valign: center;
-            margin-start: 6;
+          $HTLinkLabelWidget artist_label_2 {
+            xalign: "0";
+            use-markup: "true";
+            ellipsize: "3";
+            margin-bottom: "6";
+            label: bind artist_label.label;
           }
         }
 
-        $HTLinkLabelWidget artist_label_2 {
-          xalign: "0";
-          use-markup: "true";
-          ellipsize: "3";
-          margin-bottom: "6";
-          label: bind artist_label.label;
+        Label track_duration_label {
+          label: "00:00";
+          margin-end: 12;
+          vexpand: true;
         }
-      }
 
-      Label track_duration_label {
-        label: "00:00";
-        margin-end: 12;
-        vexpand: true;
-      }
+        MenuButton menu_button {
+          icon-name: "view-more-symbolic";
+          menu-model: track_menu;
+          valign: center;
 
-      MenuButton menu_button {
-        icon-name: "view-more-symbolic";
-        menu-model: track_menu;
-        valign: center;
-
-        styles [
-          "flat",
-        ]
-      }
+          styles [
+            "flat",
+          ]
+        }
+      };
     };
-  }
+
+    [overlay]
+    Box track_progress_bar {
+      valign: fill;
+      halign: start;
+      vexpand: true;
+      hexpand: false;
+      can-target: false;
+      visible: false;
+      width-request: 0;
+
+      styles ["track-progress-overlay"]
+    }
+  };
 }
 
 menu track_menu {

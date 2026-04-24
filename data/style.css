@@ -202,6 +202,10 @@ row:hover .play-overlay image {
     opacity: 1;
 }
 
+.track-progress-overlay {
+    background-color: alpha(@accent_color, 0.08);
+}
+
 .draggable-box row.drop-target-above {
   border-top: 2px solid var(--accent-color);
 }
