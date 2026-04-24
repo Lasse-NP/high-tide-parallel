@@ -289,6 +289,16 @@ class PlayerObject(GObject.GObject):
                 f"— this is a premature EOS and likely the source of the freeze."
             )
 
+        if self._repeat_type == RepeatType.SONG:
+            self.seeked_to_end = False
+            self.seek(0)
+            self.play()
+            return
+
+        if self._repeat_type == RepeatType.LIST and not self._tracks_to_play:
+            GLib.idle_add(self.play_next)
+            return
+
         if not self.tracks_to_play or not self.queue:
             self.pause()
         if not self.gapless_enabled:
@@ -381,6 +391,15 @@ class PlayerObject(GObject.GObject):
             track: If set, the playing track is set to it.
             Otherwise self.next_track is used
         """
+        if self.playing_track:
+            incoming = track or self.next_track
+            if self.playing_track and incoming and self.playing_track.id != incoming.id:
+                old_mpd = Path(utils.CACHE_DIR, f"manifest_{self.playing_track.id}.mpd")
+                if old_mpd.exists():
+                    try:
+                        old_mpd.unlink()
+                    except OSError:
+                        pass
         if not track and not self.next_track:
             # This method has already been called in _play_track_url
             return
@@ -629,10 +648,10 @@ class PlayerObject(GObject.GObject):
                 if data:
                     # file:// MPD support in adaptivedemux2 landed in 1.26
                     if (major, minor) >= (1, 26):
-                        mpd_path = Path(utils.CACHE_DIR, "manifest.mpd")
-                        with open(mpd_path, "w") as file:
-                            file.write(data)
-
+                        mpd_path = Path(utils.CACHE_DIR, f"manifest_{track.id}.mpd")
+                        if not mpd_path.exists():
+                            with open(mpd_path, "w") as file:
+                                file.write(data)
                         music_url = "file://{}".format(mpd_path)
                     else:
                         if isinstance(data, str):
@@ -732,6 +751,11 @@ class PlayerObject(GObject.GObject):
         Args:
             playbin: required by Gst
         """
+
+        if self._repeat_type == RepeatType.SONG:
+            logger.info("[GAPLESS] Ignoring about-to-finish: repeat-one active, EOS will seek to 0")
+            return
+
         # DEBUG DATA
         pos_ns = self.query_position()
         dur_ns = self.query_duration()
