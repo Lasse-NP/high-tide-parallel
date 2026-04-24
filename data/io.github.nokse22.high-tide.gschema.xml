@@ -38,6 +38,9 @@
 	  <key name="quadratic-volume" type="b">
       <default>false</default>
     </key>
+      <key name="smooth-scrolling" type="b">
+      <default>true</default>
+    </key>
 	  <key name="app-id-change-understood" type="b">
       <default>false</default>
     </key>

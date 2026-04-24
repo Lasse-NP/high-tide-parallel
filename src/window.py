@@ -192,6 +192,7 @@ class HighTideWindow(Adw.ApplicationWindow):
 
         self.session = utils.create_tidal_session()
 
+        utils.smooth_scroll_enabled = self.settings.get_boolean("smooth-scrolling")
         utils.session = self.session
         utils.navigation_view = self.navigation_view
         utils.toast_overlay = self.toast_overlay
@@ -878,6 +879,11 @@ class HighTideWindow(Adw.ApplicationWindow):
         if self.settings.get_boolean("quadratic-volume") != state:
             self.player_object.quadratic_volume = state
             self.settings.set_boolean("quadratic-volume", state)
+
+    def change_smooth_scrolling(self, state):
+        if self.settings.get_boolean("smooth-scrolling") != state:
+            utils.smooth_scroll_enabled = state
+            self.settings.set_boolean("smooth-scrolling", state)
 
     def change_video_covers_enabled(self, state):
         if self.settings.get_boolean("video-covers") != state:

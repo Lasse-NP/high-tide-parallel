@@ -62,6 +62,7 @@ favourite_playlists: List[Playlist] = []
 playlist_and_favorite_playlists: List[Playlist] = []
 user_playlists: List[Playlist] = []
 
+smooth_scroll_enabled: bool = False
 navigation_view: Adw.NavigationView | None = None
 player_object: PlayerObject | None = None
 session: tidalapi.Session | None = None
@@ -86,6 +87,7 @@ def init() -> None:
     if not os.path.exists(IMG_DIR):
         os.makedirs(IMG_DIR)
 
+    global smooth_scroll_enabled
     global session
     global navigation_view
     global player_object

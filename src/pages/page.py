@@ -24,6 +24,7 @@ from gi.repository import Adw, GLib, Gtk
 from tidalapi.media import Video
 
 from ..disconnectable_iface import IDisconnectable
+from ..lib.smooth_scroll import SmoothScroller
 from ..lib import utils
 from ..widgets import (
     HTAutoLoadWidget,
@@ -83,6 +84,8 @@ class Page(Adw.NavigationPage, IDisconnectable):
         self.scrolled_window = self.builder.get_object("_scrolled_window")
 
         self.set_child(self.object)
+
+        SmoothScroller(self.scrolled_window)
 
     def load(self):
         """Load the page content asynchronously.

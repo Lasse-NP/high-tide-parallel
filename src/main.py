@@ -153,6 +153,13 @@ class HighTideApplication(Adw.Application):
                 "notify::active", self.on_quadratic_volume_changed
             )
 
+            builder.get_object("_smooth_scroller_row").set_active(
+                self.settings.get_boolean("smooth-scrolling")
+            )
+            builder.get_object("_smooth_scroller_row").connect(
+                "notify::active", self.on_smooth_scrolling_changed
+            )
+
             builder.get_object("_video_cover_row").set_active(
                 self.settings.get_boolean("video-covers")
             )
@@ -211,7 +218,7 @@ class HighTideApplication(Adw.Application):
                 self.alsa_row.set_selected(0)
 
             builder.get_object("_sink_row").connect(
-                "notify::selected-item", self.deactive_alsa_device_row
+                "notify::selected-item", self.deactivate_alsa_device_row
             )
 
             self.preferences = builder.get_object("_preference_window")
@@ -235,13 +242,16 @@ class HighTideApplication(Adw.Application):
     def on_quadratic_volume_changed(self, widget: Any, *args) -> None:
         self.win.change_quadratic_volume(widget.get_active())
 
+    def on_smooth_scrolling_changed(self, widget: Any, *args) -> None:
+        self.win.change_smooth_scrolling(widget.get_active())
+
     def on_video_covers_changed(self, widget: Any, *args) -> None:
         self.win.change_video_covers_enabled(widget.get_active())
 
     def on_discord_rpc_changed(self, widget: Any, *args) -> None:
         self.win.change_discord_rpc_enabled(widget.get_active())
 
-    def deactive_alsa_device_row(self, widget: Any, *args) -> None:
+    def deactivate_alsa_device_row(self, widget: Any, *args) -> None:
         alsa_used = widget.get_selected() == AudioSink.ALSA
         self.alsa_row.set_sensitive(alsa_used)
         if not alsa_used:
