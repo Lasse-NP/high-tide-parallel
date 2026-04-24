@@ -54,6 +54,9 @@ class HTAutoLoadWidget(Gtk.Box, IDisconnectable):
 
         self.items = []
         self.playlist = None
+        self._track_widget_map: dict = {}
+        self._last_playing_id = None
+        self._song_changed_handler = None
 
         self.items_limit = 50
         self.items_n = 0
@@ -61,12 +64,17 @@ class HTAutoLoadWidget(Gtk.Box, IDisconnectable):
         self.handler_id = None
         self.scrolled_window = None
 
+        self.connect("map", self._on_map)
+        self.connect("unmap", self._on_unmap)
+
     def reset(self):
         """Reset the widget so it can be reused with new data"""
         self.items = []
         self.items_n = 0
         self.type = None
         self.is_loading = False
+        self._track_widget_map = {}
+        self._last_playing_id = None
 
         if self.parent is not None:
             child = self.parent.get_first_child()
@@ -197,7 +205,51 @@ class HTAutoLoadWidget(Gtk.Box, IDisconnectable):
             self.disconnectables.append(listing)
             listing.index = index + self.items_n
             listing.set_name(str(index + self.items_n))
+            self._track_widget_map[track.id] = listing
             self.parent.append(listing)
+
+        if utils.player_object and self._song_changed_handler is None:
+            self._song_changed_handler = utils.player_object.connect(
+                "song-changed", self._on_song_changed
+            )
+            
+        self._sync_playing_state()
+
+    def _on_map(self, *args):
+        if utils.player_object and self._song_changed_handler is None:
+            self._song_changed_handler = utils.player_object.connect(
+                "song-changed", self._on_song_changed
+            )
+        self._sync_playing_state()
+
+    def _on_unmap(self, *args):
+        if utils.player_object and self._song_changed_handler is not None:
+            utils.player_object.disconnect(self._song_changed_handler)
+            self._song_changed_handler = None
+        if self._last_playing_id and self._last_playing_id in self._track_widget_map:
+            self._track_widget_map[self._last_playing_id].remove_css_class("playing-track")
+        self._last_playing_id = None
+
+    def _sync_playing_state(self):
+        if not utils.player_object or not utils.player_object.playing_track:
+            return
+        
+        playing_id = utils.player_object.playing_track.id
+        
+        if playing_id in self._track_widget_map:
+            self._track_widget_map[playing_id].add_css_class("playing-track")
+            self._last_playing_id = playing_id
+
+    def _on_song_changed(self, player) -> None:
+        new_id = player.playing_track.id if player.playing_track else None
+
+        if self._last_playing_id and self._last_playing_id in self._track_widget_map:
+            self._track_widget_map[self._last_playing_id].remove_css_class("playing-track")
+
+        if new_id and new_id in self._track_widget_map:
+            self._track_widget_map[new_id].add_css_class("playing-track")
+
+        self._last_playing_id = new_id
 
     def _add_cards(self, new_items):
         if self.parent is None:

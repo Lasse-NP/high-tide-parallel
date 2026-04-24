@@ -168,15 +168,16 @@ row:hover .play-overlay image {
 
 .tracks-list-box row {
   border-radius: 12px;
-  background-color: transparent;
   transition: background-color 0.1s ease-in-out;
 }
 
 .tracks-list-box row:nth-child(odd) {
   background-color: alpha(var(--window-fg-color), 0.05);
+  border: 1px solid alpha(var(--window-fg-color), 0.05);
 }
 .tracks-list-box row:nth-child(even) {
   background-color: alpha(var(--window-fg-color), 0.10);
+  border: 1px solid alpha(var(--window-fg-color), 0.10);
 }
 
 .tracks-list-box row:nth-child(odd):hover {
@@ -184,6 +185,21 @@ row:hover .play-overlay image {
 }
 .tracks-list-box row:nth-child(even):hover {
   background-color: alpha(var(--window-fg-color), 0.17);
+}
+
+.tracks-list-box row.playing-track:nth-child(odd),
+.tracks-list-box row.playing-track:nth-child(even) {
+    background-color: alpha(@accent_color, 0.15);
+    border: 1px solid @accent_color;
+}
+.tracks-list-box row.playing-track:nth-child(odd):hover,
+.tracks-list-box row.playing-track:nth-child(even):hover {
+    background-color: alpha(@accent_color, 0.22);
+}
+
+.tracks-list-box row.playing-track .play-overlay image {
+    color: @accent_color;
+    opacity: 1;
 }
 
 .draggable-box row.drop-target-above {

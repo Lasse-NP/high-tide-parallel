@@ -708,8 +708,6 @@ def get_image_url(item: Any, dimensions: int = 320) -> str | None:
     else:
         file_path = Path(f"{IMG_DIR}/{uuid.uuid4()}_{dimensions}.jpg")
 
-    logger.debug(f"Image path: {file_path}, exists: {file_path.is_file()}")
-
     if file_path.is_file():
         return str(file_path)
 

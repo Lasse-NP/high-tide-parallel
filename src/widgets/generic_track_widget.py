@@ -241,10 +241,22 @@ class HTGenericTrackWidget(Gtk.ListBoxRow, IDisconnectable):
     def _copy_share_url(self, *args):
         utils.share_this(self.track)
 
+    def add_css_class(self, css_class: str) -> None:
+        super().add_css_class(css_class)
+        if css_class == "playing-track":
+            self.play_revealer.set_reveal_child(True)
+
+    def remove_css_class(self, css_class: str) -> None:
+        super().remove_css_class(css_class)
+        if css_class == "playing-track":
+            self.play_revealer.set_reveal_child(False)
+
     def _on_hover_enter(self, *args) -> None:
         self.play_revealer.set_reveal_child(True)
 
     def _on_hover_leave(self, *args) -> None:
+        if self.has_css_class("playing-track"):
+            return
         self.play_revealer.set_reveal_child(False)
 
     def _on_play_clicked(self, *args) -> None:
