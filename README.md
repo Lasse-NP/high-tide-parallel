@@ -32,8 +32,8 @@
 
 <table>
   <tr>
-    <th><img src="data/resources/screenshot 1.png"/></th>
-    <th><img src="data/resources/screenshot 2.png"/></th>
+    <th><img src="data/resources/AlbumView.png"/></th>
+    <th><img src="data/resources/MobileView.png"/></th>
   </tr>
 </table>
 
