@@ -181,7 +181,7 @@ class MPRIS(Server):
 
         self.__bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
         Gio.bus_own_name_on_connection(
-            self.__bus, self.__MPRIS_HIGH_TIDE, Gio.BusNameOwnerFlags.NONE, None, None
+            self.__bus, self.__MPRIS_HIGH_TIDE, Gio.BusNameOwnerFlags.REPLACE, None, None
         )
         Server.__init__(self, self.__bus, self.__MPRIS_PATH)
 
@@ -231,11 +231,19 @@ class MPRIS(Server):
 
     def Raise(self):
         """Bring the High Tide application window to the foreground"""
-        utils.window.present_with_time(Gdk.CURRENT_TIME)
+        from gi.repository import Gtk
+        app = Gtk.Application.get_default()
+        if app:
+            win = app.get_active_window()
+            if win:
+                win.present()
 
     def Quit(self):
         """Quit the High Tide application"""
-        utils.window.quit()
+        from gi.repository import Gtk
+        app = Gtk.Application.get_default()
+        if app:
+            app.quit()
 
     def Next(self):
         """Skip to the next track in the playlist or queue"""
@@ -457,6 +465,8 @@ class MPRIS(Server):
             "Position": GLib.Variant("x", self.player.query_position() / 1000),
             "CanGoNext": GLib.Variant("b", self.player.can_go_next),
             "CanGoPrevious": GLib.Variant("b", self.player.can_go_prev),
+            "PlaybackStatus": GLib.Variant("s", self._get_status()),
+            "CanControl": GLib.Variant("b", True),
         }
         self.PropertiesChanged(self.__MPRIS_PLAYER_IFACE, changed_properties, [])
 
