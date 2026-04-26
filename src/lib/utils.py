@@ -32,7 +32,7 @@ from typing import Any, List, TYPE_CHECKING
 import requests
 from requests.adapters import HTTPAdapter
 from colorthief import ColorThief
-from tidalapi import MixV2
+from tidalapi import MixV2, LoggedInUser, Favorites
 from urllib3.util.retry import Retry
 from gi.repository import Adw, Gdk, Gio, GLib
 
@@ -190,7 +190,7 @@ def get_alsa_devices_from_proc() -> List[dict]:
     return devices
 
 
-def get_artist(artist_id: str) -> Artist:
+def get_artist(artist_id: str) -> Artist | None:
     """Get an artist object by ID from the cache.
 
     Args:
@@ -200,10 +200,14 @@ def get_artist(artist_id: str) -> Artist:
         Artist: The artist object from TIDAL API
     """
     global cache
-    return cache.get_artist(artist_id)
+    if cache:
+        return cache.get_artist(artist_id)
+    else:
+        logger.warning("[CACHE] Cache was called, but none was there.")
+        return None
 
 
-def get_album(album_id: str) -> Album:
+def get_album(album_id: str) -> Album | None:
     """Get an album object by ID from the cache.
 
     Args:
@@ -213,10 +217,14 @@ def get_album(album_id: str) -> Album:
         Album: The album object from TIDAL API
     """
     global cache
-    return cache.get_album(album_id)
+    if cache:
+        return cache.get_album(album_id)
+    else:
+        logger.warning("[CACHE] Cache was called, but none was there.")
+        return None
 
 
-def get_track(track_id: str) -> Track:
+def get_track(track_id: str) -> Track | None:
     """Get a track object by ID from the cache.
 
     Args:
@@ -226,10 +234,14 @@ def get_track(track_id: str) -> Track:
         Track: The track object from TIDAL API
     """
     global cache
-    return cache.get_track(track_id)
+    if cache:
+        return cache.get_track(track_id)
+    else:
+        logger.warning("[CACHE] Cache was called, but none was there.")
+        return None
 
 
-def get_playlist(playlist_id: str) -> Playlist:
+def get_playlist(playlist_id: str) -> Playlist | None:
     """Get a playlist object by ID from the cache.
 
     Args:
@@ -239,10 +251,14 @@ def get_playlist(playlist_id: str) -> Playlist:
         Playlist: The playlist object from TIDAL API
     """
     global cache
-    return cache.get_playlist(playlist_id)
+    if cache:
+        return cache.get_playlist(playlist_id)
+    else:
+        logger.warning("[CACHE] Cache was called, but none was there.")
+        return None
 
 
-def get_mix(mix_id: str) -> Mix:
+def get_mix(mix_id: str) -> Mix | None:
     """Get a mix object by ID from the cache.
 
     Args:
@@ -252,7 +268,11 @@ def get_mix(mix_id: str) -> Mix:
         Mix: The mix object from TIDAL API
     """
     global cache
-    return cache.get_mix(mix_id)
+    if cache:
+        return cache.get_mix(mix_id)
+    else:
+        logger.warning("[CACHE] Cache was called, but none was there.")
+        return None
 
 
 def get_favourites() -> None:
@@ -269,52 +289,58 @@ def get_favourites() -> None:
     global playlist_and_favorite_playlists
     global user_playlists
 
-    user = session.user
+    if session:
+        user = session.user
+        assert isinstance(user, LoggedInUser), "Expected a logged-in user"
+        logged_in_user: LoggedInUser = user
+        favorites: Favorites = user.favorites
 
-    def fetch_artists():
-        return "artists", user.favorites.artists()
+        def fetch_artists():
+            return "artists", favorites.artists()
 
-    def fetch_tracks():
-        return "tracks", user.favorites.tracks(
-            order=ItemOrder.Date, order_direction=OrderDirection.Descending)
+        def fetch_tracks():
+            return "tracks", favorites.tracks(
+                order=ItemOrder.Date, order_direction=OrderDirection.Descending)
 
-    def fetch_albums():
-        return "albums", user.favorites.albums()
+        def fetch_albums():
+            return "albums", favorites.albums()
 
-    def fetch_playlists():
-        return "playlists", user.favorites.playlists()
+        def fetch_playlists():
+            return "playlists", favorites.playlists()
 
-    def fetch_mixes():
-        return "mixes", user.favorites.mixes()
+        def fetch_mixes():
+            return "mixes", favorites.mixes()
 
-    def fetch_user_playlists():
-        return "user_playlists", user.playlists()
+        def fetch_user_playlists():
+            return "user_playlists", logged_in_user.playlists()
 
-    with ThreadPoolExecutor(max_workers=6) as executor:
-        futures = [
-            executor.submit(fetch_artists),
-            executor.submit(fetch_tracks),
-            executor.submit(fetch_albums),
-            executor.submit(fetch_playlists),
-            executor.submit(fetch_mixes),
-            executor.submit(fetch_user_playlists),
-        ]
-        for future in as_completed(futures):
-            key, value = future.result()
-            match key:
-                case "artists":
-                    favourite_artists = value
-                case "tracks":
-                    favourite_tracks = value
-                case "albums":
-                    favourite_albums = value
-                case "playlists":
-                    favourite_playlists = value
-                    playlist_and_favorite_playlists = value
-                case "mixes":
-                    favourite_mixes = value
-                case "user_playlists":
-                    user_playlists = value
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            futures = [
+                executor.submit(fetch_artists),
+                executor.submit(fetch_tracks),
+                executor.submit(fetch_albums),
+                executor.submit(fetch_playlists),
+                executor.submit(fetch_mixes),
+                executor.submit(fetch_user_playlists),
+            ]
+            for future in as_completed(futures):
+                key, value = future.result()
+                match key:
+                    case "artists":
+                        favourite_artists = value
+                    case "tracks":
+                        favourite_tracks = value
+                    case "albums":
+                        favourite_albums = value
+                    case "playlists":
+                        favourite_playlists = value
+                        playlist_and_favorite_playlists = value
+                    case "mixes":
+                        favourite_mixes = value
+                    case "user_playlists":
+                        user_playlists = value
+    else:
+        raise RuntimeError("No current active session")
 
 
 def is_favourited(item: Any) -> bool:
@@ -363,7 +389,11 @@ def send_toast(toast_title: str, timeout: int) -> None:
         toast_title (str): The message to display in the toast
         timeout (int): Duration in seconds before the toast disappears
     """
-    toast_overlay.add_toast(Adw.Toast(title=toast_title, timeout=timeout))
+    if toast_overlay:
+        toast_overlay.add_toast(Adw.Toast(title=toast_title, timeout=timeout))
+    else:
+        logger.warning("[TOAST] Toasting overlay missing, skipping toast.")
+        return
 
 def th_add_to_my_collection(btn: Any, item: Any) -> None:
     """Thread function to add a TIDAL item to the user's favorites.
@@ -390,41 +420,47 @@ def th_add_to_my_collection(btn: Any, item: Any) -> None:
         if isinstance(page, HTCollectionPage):
             GLib.idle_add(page.refresh, item, False)
 
-    if isinstance(item, Track):
-        result = session.user.favorites.add_track(str(item.id))
-    elif isinstance(item, Mix):
-        return
-    elif isinstance(item, Album):
-        result = session.user.favorites.add_album(str(item.id))
-    elif isinstance(item, Artist):
-        result = session.user.favorites.add_artist(str(item.id))
-    elif isinstance(item, Playlist):
-        result = session.user.favorites.add_playlist(str(item.id))
-    else:
-        result = False
+    if session:
+        user = session.user
+        assert isinstance(user, LoggedInUser)
 
-    if result:
-        send_toast(_("Successfully added to my collection"), 2)
-    else:
-        # Rollback
         if isinstance(item, Track):
-            favourite_tracks[:] = [t for t in favourite_tracks if t.id != item.id]
-        elif isinstance(item, Album):
-            favourite_albums[:] = [a for a in favourite_albums if a.id != item.id]
-        elif isinstance(item, Artist):
-            favourite_artists[:] = [a for a in favourite_artists if a.id != item.id]
-        elif isinstance(item, Playlist):
-            favourite_playlists[:] = [p for p in favourite_playlists if p.id != item.id]
-            playlist_and_favorite_playlists[:] = [p for p in playlist_and_favorite_playlists if p.id != item.id]
+            result = session.user.favorites.add_track(str(item.id))
         elif isinstance(item, Mix):
-            favourite_mixes[:] = [m for m in favourite_mixes if m.id != item.id]
+            return
+        elif isinstance(item, Album):
+            result = session.user.favorites.add_album(str(item.id))
+        elif isinstance(item, Artist):
+            result = session.user.favorites.add_artist(str(item.id))
+        elif isinstance(item, Playlist):
+            result = session.user.favorites.add_playlist(str(item.id))
+        else:
+            result = False
 
-        send_toast(_("Failed to add item to my collection"), 2)
-        if navigation_view:
-            btn.set_icon_name("heart-outline-thick-symbolic")
-            page = navigation_view.find_page("collection")
-            if isinstance(page, HTCollectionPage):
-                GLib.idle_add(page.refresh, item, True)
+        if result:
+            send_toast(_("Successfully added to my collection"), 2)
+        else:
+            # Rollback
+            if isinstance(item, Track):
+                favourite_tracks[:] = [t for t in favourite_tracks if t.id != item.id]
+            elif isinstance(item, Album):
+                favourite_albums[:] = [a for a in favourite_albums if a.id != item.id]
+            elif isinstance(item, Artist):
+                favourite_artists[:] = [a for a in favourite_artists if a.id != item.id]
+            elif isinstance(item, Playlist):
+                favourite_playlists[:] = [p for p in favourite_playlists if p.id != item.id]
+                playlist_and_favorite_playlists[:] = [p for p in playlist_and_favorite_playlists if p.id != item.id]
+            elif isinstance(item, Mix):
+                favourite_mixes[:] = [m for m in favourite_mixes if m.id != item.id]
+
+            send_toast(_("Failed to add item to my collection"), 2)
+            if navigation_view:
+                btn.set_icon_name("heart-outline-thick-symbolic")
+                page = navigation_view.find_page("collection")
+                if isinstance(page, HTCollectionPage):
+                    GLib.idle_add(page.refresh, item, True)
+    else:
+        raise RuntimeError(_("Can't add item if not logged in"))
 
 
 def th_remove_from_my_collection(btn: Any, item: Any) -> None:
@@ -454,41 +490,47 @@ def th_remove_from_my_collection(btn: Any, item: Any) -> None:
         if isinstance(page, HTCollectionPage):
             GLib.idle_add(page.refresh, item, True)
 
-    if isinstance(item, Track):
-        result = session.user.favorites.remove_track(str(item.id))
-    elif isinstance(item, Mix):
-        return
-    elif isinstance(item, Album):
-        result = session.user.favorites.remove_album(str(item.id))
-    elif isinstance(item, Artist):
-        result = session.user.favorites.remove_artist(str(item.id))
-    elif isinstance(item, Playlist):
-        result = session.user.favorites.remove_playlist(str(item.id))
-    else:
-        result = False
+    if session:
+        user = session.user
+        assert isinstance(user, LoggedInUser)
 
-    if result:
-        send_toast(_("Successfully removed from my collection"), 2)
-    else:
-        # Rollback — re-add to local list and refresh
         if isinstance(item, Track):
-            favourite_tracks.append(item)
-        elif isinstance(item, Album):
-            favourite_albums.append(item)
-        elif isinstance(item, Artist):
-            favourite_artists.append(item)
-        elif isinstance(item, Playlist):
-            favourite_playlists.append(item)
-            playlist_and_favorite_playlists.append(item)
+            result = session.user.favorites.remove_track(str(item.id))
         elif isinstance(item, Mix):
-            favourite_mixes.append(item)
+            return
+        elif isinstance(item, Album):
+            result = session.user.favorites.remove_album(str(item.id))
+        elif isinstance(item, Artist):
+            result = session.user.favorites.remove_artist(str(item.id))
+        elif isinstance(item, Playlist):
+            result = session.user.favorites.remove_playlist(str(item.id))
+        else:
+            result = False
 
-        send_toast(_("Failed to remove item from my collection"), 2)
-        if navigation_view:
-            btn.set_icon_name("heart-filled-symbolic")
-            page = navigation_view.find_page("collection")
-            if isinstance(page, HTCollectionPage):
-                GLib.idle_add(page.refresh, item, False)
+        if result:
+            send_toast(_("Successfully removed from my collection"), 2)
+        else:
+            # Rollback — re-add to local list and refresh
+            if isinstance(item, Track):
+                favourite_tracks.append(item)
+            elif isinstance(item, Album):
+                favourite_albums.append(item)
+            elif isinstance(item, Artist):
+                favourite_artists.append(item)
+            elif isinstance(item, Playlist):
+                favourite_playlists.append(item)
+                playlist_and_favorite_playlists.append(item)
+            elif isinstance(item, Mix):
+                favourite_mixes.append(item)
+
+            send_toast(_("Failed to remove item from my collection"), 2)
+            if navigation_view:
+                btn.set_icon_name("heart-filled-symbolic")
+                page = navigation_view.find_page("collection")
+                if isinstance(page, HTCollectionPage):
+                    GLib.idle_add(page.refresh, item, False)
+    else:
+        raise RuntimeError(_("Can't remove item if not logged in"))
 
 
 def on_in_to_my_collection_button_clicked(btn: Any, item: Any) -> None:
@@ -504,31 +546,34 @@ def on_in_to_my_collection_button_clicked(btn: Any, item: Any) -> None:
         threading.Thread(target=th_remove_from_my_collection, args=(btn, item)).start()
 
 
-def share_this(item: Any) -> None:
+def share_this(item: Any) -> None | str:
     """Copy a TIDAL item's share URL to the system clipboard.
 
     Args:
         item: A TIDAL object with a share_url attribute
     """
-    clipboard: Gdk.Clipboard = Gdk.Display().get_default().get_clipboard()
+    default_display = Gdk.Display().get_default()
+    if default_display:
+        clipboard: Gdk.Clipboard = default_display.get_clipboard()
+        share_url: str | None = None
 
-    share_url: str | None = None
+        if isinstance(item, Track):
+            share_url = item.share_url
+        elif isinstance(item, Album):
+            share_url = item.share_url
+        elif isinstance(item, Artist):
+            share_url = item.share_url
+        elif isinstance(item, Playlist):
+            share_url = item.share_url
 
-    if isinstance(item, Track):
-        share_url = item.share_url
-    elif isinstance(item, Album):
-        share_url = item.share_url
-    elif isinstance(item, Artist):
-        share_url = item.share_url
-    elif isinstance(item, Playlist):
-        share_url = item.share_url
+        if share_url:
+            clipboard.set(share_url + "?u")
+            send_toast(_("Copied share URL in the clipboard"), 2)
+            return share_url
+        else:
+            return share_url
     else:
-        return
-
-    if share_url:
-        clipboard.set(share_url + "?u")
-
-        send_toast(_("Copied share URL in the clipboard"), 2)
+        return None
 
 
 def get_type(item: Any) -> str:
@@ -574,7 +619,7 @@ def open_uri(label: str, uri: str) -> bool:
         case "track":
             def _open_track():
                 track = get_track(uri_parts[1])
-                if navigation_view and track.album:
+                if navigation_view and track and track.album:
                     album_page = HTAlbumPage.new_from_id(str(track.album.id)).load()
                     GLib.idle_add(navigation_view.push, album_page)
             threading.Thread(target=_open_track).start()
@@ -618,7 +663,7 @@ def open_tidal_uri(uri: str) -> None:
         case "track":
             def _open_track():
                 track = get_track(content_id)
-                if navigation_view and track.album:
+                if navigation_view and track and track.album:
                     album_page = HTAlbumPage.new_from_id(str(track.album.id)).load()
                     GLib.idle_add(navigation_view.push, album_page)
             threading.Thread(target=_open_track).start()
