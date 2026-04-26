@@ -43,12 +43,24 @@ My fork currently doesn't have any builds pushed out via any distribution method
 
 ### ⚡ From source (binary)
 
-You just need to clone the repository, and build with meson.
+You just need to clone the repository, and build with meson. You will have to install various dependencies like:
+
+#### Package Managers Install
+- python-gobject
+- gobject-introspection
+- blueprint-compiler
+
+#### System-wide Pip Install
+- tidalapi
+- pypresence
+- colorthief
+
+Afterwards the build should proceed successfully, milage may vary depending on distro.
 
 ```sh
 git clone https://github.com/Lasse-NP/high-tide-parallel.git
 cd high-tide-parallel
-meson build
+meson setup --wipe build --prefix=/usr/local --wrap-mode=nofallback
 meson compile -C build
 meson install -C build
 ```
