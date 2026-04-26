@@ -215,7 +215,7 @@ class PlayerObject(GObject.GObject):
         sink_map = {
             AudioSink.AUTO: "autoaudiosink",
             AudioSink.PULSE: "pulsesink",
-            AudioSink.ALSA: f"alsasink device={self.alsa_device}",
+            AudioSink.ALSA: f"volume name=alsa-vol ! alsasink device={self.alsa_device}",
             AudioSink.JACK: "jackaudiosink",
             AudioSink.OSS: "osssink",
             AudioSink.PIPEWIRE: "pipewiresink",
@@ -947,14 +947,18 @@ class PlayerObject(GObject.GObject):
         Args:
             value (float): Volume level (0.0 to 1.0), will be squared if quadratic volume is enabled
         """
+        volume_value = value ** 2 if self.quadratic_volume else value
         if self.playbin:
-            if self.quadratic_volume:
-                self.playbin.set_property("volume", value**2)
-            else:
-                self.playbin.set_property("volume", value)
-            self.emit("volume-changed", value)
-        else:
-            raise RuntimeError("Playbin is not available")
+            audio_sink = self.playbin.get_property("audio-sink")
+            if audio_sink:
+                alsa_vol = audio_sink.get_by_name("alsa-vol")
+                if alsa_vol:
+                    alsa_vol.set_property("volume", volume_value)
+                    self.emit("volume-changed", value)
+                    return
+        if self.playbin:
+            self.playbin.set_property("volume", volume_value)
+        self.emit("volume-changed", value)
 
     def _update_slider_callback(self):
         """Update playback slider and duration."""
