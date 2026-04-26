@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 try:
     import pypresence
-
     has_pypresence = True
 except ImportError:
     logger.warning("pypresence not found, skipping")

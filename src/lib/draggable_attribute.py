@@ -4,6 +4,14 @@ from ..widgets.queue_item_widget import HTQueueItemWidget
 
 class HTDraggableList:
 
+    def __init__(self):
+        self._list_box = None
+        self._items = []
+        self._row_factory = None
+        self._on_reorder = None
+        self._list_type = None
+        self._indicator_row = None
+
     def setup(self, list_box, items, row_factory, on_reorder=None, list_type=None):
         """Set up drag-to-reorder on a list box.
 
@@ -78,7 +86,7 @@ class HTDraggableList:
             while self._list_box.get_row_at_index(i):
                 last = self._list_box.get_row_at_index(i)
                 i += 1
-            if last:
+            if last is not None:
                 last.add_css_class("drop-target-below")
                 self._indicator_row = last
 
