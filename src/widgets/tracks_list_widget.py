@@ -117,10 +117,7 @@ class HTTracksListWidget(Gtk.Box, IDisconnectable):
         Args:
             function: the function"""
         self.get_function = function
-        self.tracks = self.get_function(10)
         self.more_button.set_visible(True)
-
-        self._add_tracks()
 
     def set_tracks_list(self, tracks_list: List[Track]) -> None:
         self.tracks = tracks_list

@@ -125,6 +125,13 @@ class HTAutoLoadWidget(Gtk.Box, IDisconnectable):
         Args:
             scrolled_window (Gtk.ScrolledWindow): the scrolled window
         """
+        if self.scrolled_window is not None and self.handler_id is not None:
+            GObject.signal_handler_disconnect(self.scrolled_window, self.handler_id)
+            self.signals = [
+                (obj, hid) for obj, hid in self.signals
+                if not (obj is self.scrolled_window and hid == self.handler_id)
+            ]
+
         self.scrolled_window = scrolled_window
         self.handler_id = self.scrolled_window.connect(
             "edge-reached", self._on_edge_reached
@@ -212,7 +219,7 @@ class HTAutoLoadWidget(Gtk.Box, IDisconnectable):
             self._song_changed_handler = utils.player_object.connect(
                 "song-changed", self._on_song_changed
             )
-            
+
         self._sync_playing_state()
 
     def _on_map(self, *args):
@@ -233,9 +240,9 @@ class HTAutoLoadWidget(Gtk.Box, IDisconnectable):
     def _sync_playing_state(self):
         if not utils.player_object or not utils.player_object.playing_track:
             return
-        
+
         playing_id = utils.player_object.playing_track.id
-        
+
         if playing_id in self._track_widget_map:
             self._track_widget_map[playing_id].add_css_class("playing-track")
             self._last_playing_id = playing_id

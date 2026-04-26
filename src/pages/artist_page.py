@@ -35,19 +35,32 @@ from .page import Page
 logger = logging.getLogger(__name__)
 
 
+def _dedupe_by_name(items):
+    seen = set()
+    result = []
+    for item in items:
+        key = item.name.lower().strip() if item.name else item.id
+        if key not in seen:
+            seen.add(key)
+            result.append(item)
+    return result
+
 class HTArtistPage(Page):
     """A page to display an artist"""
 
     __gtype_name__ = "HTArtistPage"
 
-    top_tracks: List[Track] = []
-    albums: List[Album] = []
-    albums_ep_singles = []
-    albums_other = []
-    similar: List[Artist] = []
-    bio: str = ""
+    def __init__(self):
+        super().__init__()
+        self.top_tracks = []
+        self.albums = []
+        self.albums_ep_singles = []
+        self.albums_other = []
+        self.similar = []
+        self.bio = ""
 
     def _load_async(self) -> None:
+        logger.warning(f"[ARTIST] _load_async called, instance={id(self)}")
         try:
             self.artist = utils.get_artist(self.id)
         except Exception as e:
@@ -56,31 +69,32 @@ class HTArtistPage(Page):
             return  # can't continue if artist is missing
 
         try:
-            self.top_tracks = self.artist.get_top_tracks(limit=5)
+            self.top_tracks = _dedupe_by_name(self.artist.get_top_tracks(limit=10))[:5]
         except Exception as e:
             logger.warning(f"Failed to load top tracks for {self.artist}: {e}")
             self.top_tracks = []
 
         try:
-            self.albums = self.artist.get_albums(limit=10)
+            self.albums = _dedupe_by_name(self.artist.get_albums(limit=10))
+            logger.warning(f"[ARTIST] albums ids: {[a.id for a in self.albums]}")
         except Exception as e:
             logger.warning(f"Failed to load albums for {self.artist}: {e}")
             self.albums = []
 
         try:
-            self.albums_ep_singles = self.artist.get_albums_ep_singles(limit=10)
+            self.albums_ep_singles = _dedupe_by_name(self.artist.get_ep_singles(limit=10))
         except Exception as e:
             logger.warning(f"Failed to load EPs/singles for {self.artist}: {e}")
             self.albums_ep_singles = []
 
         try:
-            self.albums_other = self.artist.get_albums_other(limit=10)
+            self.albums_other = _dedupe_by_name(self.artist.get_other(limit=10))
         except Exception as e:
             logger.warning(f"Failed to load other albums for {self.artist}: {e}")
             self.albums_other = []
 
         try:
-            self.similar = self.artist.get_similar()
+            self.similar = _dedupe_by_name(self.artist.get_similar())
         except Exception as e:
             logger.warning(f"Failed to load similar artists for {self.artist}: {e}")
             self.similar = []
@@ -92,6 +106,8 @@ class HTArtistPage(Page):
             self.bio = ""
 
     def _load_finish(self) -> None:
+        logger.warning(
+            f"[ARTIST] _load_finish called, instance={id(self)}, top_tracks count={len(self.top_tracks)}, albums count={len(self.albums)}")
         self.set_title(self.artist.name)
 
         builder = Gtk.Builder.new_from_resource(
@@ -157,18 +173,21 @@ class HTArtistPage(Page):
 
         builder.get_object("_first_subtitle_label").set_label(_("Artist"))
 
+        logger.warning(f"[ARTIST] top_tracks before widget: {[t.name for t in self.top_tracks]}")
         self.new_track_list_for(
             _("Top Tracks"), self.top_tracks, self.artist.get_top_tracks
         )
 
-        self.new_carousel_for(_("Albums"), self.albums, self.artist.get_albums)
-
         self.new_carousel_for(
-            _("EP & Singles"), self.albums_ep_singles, self.artist.get_albums_ep_singles
+            _("Albums"), self.albums, lambda **kwargs: _dedupe_by_name(self.artist.get_albums(**kwargs))
         )
 
         self.new_carousel_for(
-            _("Appears On"), self.albums_other, self.artist.get_albums_other
+            _("EP & Singles"), self.albums_ep_singles, lambda **kwargs: _dedupe_by_name(self.artist.get_ep_singles(**kwargs))
+        )
+
+        self.new_carousel_for(
+            _("Appears On"), self.albums_other, lambda **kwargs: _dedupe_by_name(self.artist.get_other(**kwargs))
         )
 
         self.new_carousel_for(_("Similar Artists"), self.similar)

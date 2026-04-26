@@ -28,15 +28,17 @@ class TrackListPage(Page):
 
     __gtype_name__ = "TrackListPage"
 
-    original_tracks = []
-    current_sort = 0
-    auto_load = None
+
 
     def _setup_ui(
         self, builder, title, subtitle, tracks, reload_function=None, hide_share=False
     ):
         self.set_title(title)
         self.append(builder.get_object("_main"))
+
+        self.original_tracks = []
+        self.current_sort = 0
+        self.auto_load = None
 
         self.auto_load = builder.get_object("_auto_load")
         self.auto_load.set_scrolled_window(self.scrolled_window)
