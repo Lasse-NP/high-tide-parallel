@@ -599,6 +599,10 @@ class PlayerObject(GObject.GObject):
             f"title='{getattr(track, 'name', '?')}' gapless={gapless}"
         )
 
+        if not gapless:
+            self.next_track = None
+            self._next_track_prefetched = False
+
         threading.Thread(target=self._play_track_thread, args=(track, gapless, prefetched)).start()
 
     def _play_prefetched_track(self, track: Track) -> None:
