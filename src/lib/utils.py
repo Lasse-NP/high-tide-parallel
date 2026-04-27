@@ -801,7 +801,11 @@ def setup_artist_image(artist, widget: HTDefaultImageWidget) -> None:
 
 
 def add_picture(
-    widget: Any, item: Any, cancellable: Gio.Cancellable = Gio.Cancellable.new()
+    widget: Any,
+    item: Any,
+    cancellable:
+    Gio.Cancellable = Gio.Cancellable.new(),
+    dimensions: int | None = None
 ) -> None:
     """Retrieve and set an image for a widget from a TIDAL item.
 
@@ -811,6 +815,7 @@ def add_picture(
         widget: A GTK widget that supports set_filename()
         item: A TIDAL object with image data
         cancellable: Optional GCancellable for canceling the operation
+        dimensions: The desired image dimensions
     """
 
     if cancellable is None:
@@ -820,16 +825,34 @@ def add_picture(
         if not cancellable.is_cancelled():
             widget.set_filename(file_path)
 
+    resolved = dimensions if dimensions is not None else get_best_dimensions(widget)
+    file_path = get_image_url(item, resolved)
+
+    if file_path:
+        try:
+            size = Path(file_path).stat().st_size
+            if size < 8_000 and resolved < 640:
+                logger.debug(
+                    f"[COVER] Image at {resolved}px is only {size}B — "
+                    f"likely a low-res thumbnail, re-fetching at 640px"
+                )
+                Path(file_path).unlink(missing_ok=True)
+                file_path = get_image_url(item, 640)
+        except OSError:
+            pass
+
     GLib.idle_add(
         _add_picture,
         widget,
-        get_image_url(item, get_best_dimensions(widget)),
+        file_path,
         cancellable,
     )
 
 
 def add_image(
-    widget: Any, item: Any, cancellable: Gio.Cancellable = Gio.Cancellable.new()
+    widget: Any,
+    item: Any,
+    cancellable: Gio.Cancellable = Gio.Cancellable.new(),
 ) -> None:
     """Retrieve and set an image for a widget from a TIDAL item.
 
@@ -890,6 +913,7 @@ def add_video_cover(
     item: Any,
     in_bg: bool,
     cancellable: Gio.Cancellable = Gio.Cancellable.new(),
+    dimensions: int | None = None,
 ) -> None:
     """Retrieve and set a video cover for a video player widget from a TIDAL item.
 
@@ -901,18 +925,13 @@ def add_video_cover(
         item: A TIDAL object with video data
         in_bg (bool): Whether the window is currently in background (not in focus)
         cancellable: Optional GCancellable for canceling the operation
+        dimensions: The desired video dimensions
     """
 
     if cancellable is None:
         cancellable = Gio.Cancellable.new()
 
-    def _add_video_cover(
-        widget: Any,
-        videoplayer: Any,
-        file_path: str | None,
-        in_bg: bool,
-        cancellable: Gio.Cancellable,
-    ) -> None:
+    def _add_video_cover(widget, videoplayer, file_path, in_bg, cancellable):
         if not cancellable.is_cancelled() and file_path:
             videoplayer.set_loop(True)
             videoplayer.set_filename(file_path)
@@ -920,11 +939,12 @@ def add_video_cover(
             if not in_bg:
                 videoplayer.play()
 
+    resolved = dimensions if dimensions is not None else get_best_dimensions(widget)
     GLib.idle_add(
         _add_video_cover,
         widget,
         videoplayer,
-        get_video_cover_url(item, get_best_dimensions(widget)),
+        get_video_cover_url(item, resolved),
         in_bg,
         cancellable,
     )

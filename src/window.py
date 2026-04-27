@@ -418,6 +418,7 @@ class HighTideWindow(Adw.ApplicationWindow):
             self.videoplayer.pause()
             self.videoplayer.clear()
 
+        cover_dimensions = utils.get_best_dimensions(self.playing_track_picture)
         if self.video_covers_enabled and album.video_cover:
             threading.Thread(
                 target=utils.add_video_cover,
@@ -427,12 +428,13 @@ class HighTideWindow(Adw.ApplicationWindow):
                     album,
                     self.in_background,
                     self.image_canc,
+                    cover_dimensions
                 ),
             ).start()
         else:
             threading.Thread(
                 target=utils.add_picture,
-                args=(self.playing_track_picture, album, self.image_canc),
+                args=(self.playing_track_picture, album, self.image_canc, cover_dimensions),
             ).start()
 
         threading.Thread(
@@ -897,6 +899,7 @@ class HighTideWindow(Adw.ApplicationWindow):
             self.videoplayer.pause()
             self.videoplayer.clear()
 
+            cover_dimensions = utils.get_best_dimensions(self.playing_track_picture)
             if self.video_covers_enabled and album.video_cover:
                 threading.Thread(
                     target=utils.add_video_cover,
@@ -905,12 +908,13 @@ class HighTideWindow(Adw.ApplicationWindow):
                         self.videoplayer,
                         album,
                         self.image_canc,
+                        cover_dimensions
                     ),
                 ).start()
             else:
                 threading.Thread(
                     target=utils.add_picture,
-                    args=(self.playing_track_picture, album, self.image_canc),
+                    args=(self.playing_track_picture, album, self.image_canc, cover_dimensions),
                 ).start()
 
     def change_discord_rpc_enabled(self, state):

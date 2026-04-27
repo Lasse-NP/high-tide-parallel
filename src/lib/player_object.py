@@ -828,17 +828,14 @@ class PlayerObject(GObject.GObject):
         if self.next_track:
             logger.info("Using already enqueued track from gapless")
             track = self.next_track
-            assert isinstance(track, Track)
-            prefetched = self._next_track_prefetched
-            self.next_track = None
-            self._next_track_prefetched = False
-
-            # If a track is manually skipped in the last moments
-            if not gapless and self.playing_track:
-                self.played_songs.append(self.playing_track)
-
-            self.play_track(track, gapless=gapless, prefetched=prefetched)
-            return
+            if track and isinstance(track, Track):
+                prefetched = self._next_track_prefetched
+                self.next_track = None
+                self._next_track_prefetched = False
+                if self.playing_track:
+                    self.played_songs.append(self.playing_track)
+                self.play_track(track, gapless=gapless, prefetched=prefetched)
+                return
 
         if self._repeat_type == RepeatType.SONG and not gapless:
             self.seek(0)
