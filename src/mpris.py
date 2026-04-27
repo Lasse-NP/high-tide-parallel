@@ -12,9 +12,7 @@
 # Copyright (c) 2023 Nokse22
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from random import randint
-
-from gi.repository import Gdk, Gio, GLib
+from gi.repository import Gio, GLib
 
 from .lib import utils
 from .lib.player_object import RepeatType
@@ -132,6 +130,9 @@ class MPRIS(Server):
                 <arg name="TrackId" direction="in" type="o"/>
                 <arg name="Position" direction="in" type="x"/>
             </method>
+            <signal name="Seeked">
+                <arg name="Position" type="x"/>
+            </signal>
             <property name="PlaybackStatus" type="s" access="read"/>
             <property name="Metadata" type="a{sv}" access="read"/>
             <property name="Position" type="x" access="read"/>
@@ -167,11 +168,10 @@ class MPRIS(Server):
 
     def __init__(self, player):
         self.player = player
-
         self.__metadata = {}
+        self.__bus = None  # set in _on_bus_acquired, before name is announced
 
         track = self.player.playing_track
-
         if track:
             self.__metadata["mpris:trackid"] = GLib.Variant("o", f"/Track/{track.id}")
             self.__metadata["xesam:title"] = GLib.Variant("s", track.name)
@@ -179,55 +179,47 @@ class MPRIS(Server):
             self.__metadata["xesam:artist"] = GLib.Variant("as", [track.artist])
             self.__metadata["mpris:length"] = GLib.Variant("x", track.duration * 1_000_000)
 
-        self.__bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-        Gio.bus_own_name_on_connection(
-            self.__bus, self.__MPRIS_HIGH_TIDE, Gio.BusNameOwnerFlags.REPLACE, None, None
+        # bus_own_name fires _on_bus_acquired BEFORE announcing the name to
+        # other clients, so the object is guaranteed to be registered by the
+        # time any media widget tries to talk to us.
+        Gio.bus_own_name(
+            Gio.BusType.SESSION,
+            self.__MPRIS_HIGH_TIDE,
+            Gio.BusNameOwnerFlags.NONE,
+            self._on_bus_acquired,  # register object here — safe window
+            self._on_name_acquired,  # name is now public — connect signals
+            self._on_name_lost,
         )
+
+    def _on_bus_acquired(self, connection, name):
+        """
+        Called before the name is advertised. Register the D-Bus object here
+        so it's always present when clients discover the name.
+        """
+        self.__bus = connection
         Server.__init__(self, self.__bus, self.__MPRIS_PATH)
+        logger.debug("MPRIS: D-Bus object registered on %s", self.__MPRIS_PATH)
+
+    def _on_name_acquired(self, connection, name):
+        """
+        Name is now visible to other clients. Safe to connect player signals
+        and start emitting PropertiesChanged.
+        """
+        logger.debug("MPRIS: acquired bus name %s", name)
 
         self.player.connect("song-changed", self._on_preset_changed)
-        self.player.connect("duration-changed", self._on_preset_changed)
+        self.player.connect("duration-changed", self._on_duration_changed)
         self.player.connect("notify::playing", self._on_playing_changed)
         self.player.connect("notify::shuffle", self._on_shuffle_changed)
         self.player.connect("notify::repeat-type", self._on_repeat_changed)
         self.player.connect("volume-changed", self._on_volume_changed)
 
-        self.start_position_updates()
-
-    def start_position_updates(self):
-        """Start a repeating timer to update the MPRIS Position property."""
-        GLib.timeout_add(500, self._update_position)  # update every 500ms
-
-    def _update_position(self):
-        if self.player.playing_track:
-            duration = self.player.query_duration() / 1000
-
-            if (
-                duration > 0
-                and self.__metadata.get(
-                    "mpris:length", GLib.Variant("x", 0)
-                ).get_int64()
-                != duration
-            ):
-                self.__metadata["mpris:length"] = GLib.Variant("x", int(duration))
-                self.PropertiesChanged(
-                    self.__MPRIS_PLAYER_IFACE,
-                    {
-                        "Metadata": GLib.Variant("a{sv}", self.__metadata),
-                    },
-                    [],
-                )
-
-            self.PropertiesChanged(
-                self.__MPRIS_PLAYER_IFACE,
-                {
-                    "Position": GLib.Variant(
-                        "x", int(self.player.query_position() / 1000)
-                    )
-                },
-                [],
-            )
-        return True
+    def _on_name_lost(self, connection, name):
+        """
+        Called if we lose the name (e.g. another instance replaced us, or
+        D-Bus itself went away). Log it so it's diagnosable.
+        """
+        logger.warning("MPRIS: lost bus name %s — media controls will stop working", name)
 
     def Raise(self):
         """Bring the High Tide application window to the foreground"""
@@ -271,39 +263,24 @@ class MPRIS(Server):
         self._on_playing_changed()
 
     def Seek(self, offset):
-        """Seek forward or backward by the given offset (offset in microseconds)"""
-        current_pos_us = self.player.query_position() / 1000
-        duration_us = self.player.query_duration() / 1000
+        """Seek forward or backward by offset (microseconds)."""
+        current_pos_us = int(self.player.query_position() / 1000)
+        duration_us = int(self.player.query_duration() / 1000)
 
-        new_pos_us = current_pos_us + offset
-
-        new_pos_us = max(0, min(new_pos_us, duration_us))
-
+        new_pos_us = max(0, min(current_pos_us + offset, duration_us))
         seek_fraction = new_pos_us / duration_us if duration_us > 0 else 0
 
         self.player.seek(seek_fraction)
-
-        self.PropertiesChanged(
-            self.__MPRIS_PLAYER_IFACE,
-            {"Position": GLib.Variant("x", int(new_pos_us))},
-            [],
-        )
+        self._emit_seeked(new_pos_us)
 
     def SetPosition(self, track_id, position):
-        """Set the playback position to a specific point (position in microseconds)"""
-        duration_us = self.player.query_duration() / 1000
-
+        """Set the playback position to a specific point (microseconds)."""
+        duration_us = int(self.player.query_duration() / 1000)
         position = max(0, min(position, duration_us))
-
         seek_fraction = position / duration_us if duration_us > 0 else 0
 
         self.player.seek(seek_fraction)
-
-        self.PropertiesChanged(
-            self.__MPRIS_PLAYER_IFACE,
-            {"Position": GLib.Variant("x", int(position))},
-            [],
-        )
+        self._emit_seeked(position)
 
     def Get(self, interface, property_name):
         """Get the value of a specific MPRIS property.
@@ -315,13 +292,7 @@ class MPRIS(Server):
         Returns:
             GLib.Variant: The property value wrapped in a GVariant
         """
-        if property_name in [
-            "CanQuit",
-            "CanRaise",
-            "CanControl",
-            "CanPlay",
-            "CanPause",
-        ]:
+        if property_name in ("CanQuit", "CanRaise", "CanControl", "CanPlay", "CanPause"):
             return GLib.Variant("b", True)
         elif property_name == "CanGoNext":
             return GLib.Variant("b", self.player.can_go_next)
@@ -338,14 +309,13 @@ class MPRIS(Server):
         elif property_name == "Metadata":
             return GLib.Variant("a{sv}", self.__metadata)
         elif property_name == "Position":
-            return GLib.Variant("x", self.player.query_position() / 1000)
+            return GLib.Variant("x", int(self.player.query_position() / 1000))
         elif property_name == "Volume":
             return GLib.Variant("d", self.player.query_volume())
         elif property_name == "Shuffle":
             return GLib.Variant("b", self.player.shuffle)
         elif property_name == "LoopStatus":
-            status = self.REPEAT_TYPE_TO_MPRIS_LOOP[self.player.repeat_type]
-            return GLib.Variant("s", status)
+            return GLib.Variant("s", self.REPEAT_TYPE_TO_MPRIS_LOOP[self.player.repeat_type])
         else:
             return GLib.Variant("b", False)
 
@@ -360,24 +330,15 @@ class MPRIS(Server):
         """
         ret = {}
         if interface == self.__MPRIS_IFACE:
-            for property_name in ["CanQuit", "CanRaise", "Identity", "DesktopEntry"]:
-                ret[property_name] = self.Get(interface, property_name)
+            for prop in ("CanQuit", "CanRaise", "Identity", "DesktopEntry"):
+                ret[prop] = self.Get(interface, prop)
         elif interface == self.__MPRIS_PLAYER_IFACE:
-            for property_name in [
-                "PlaybackStatus",
-                "Metadata",
-                "Position",
-                "Volume",
-                "Shuffle",
-                "LoopStatus",
-                "CanGoNext",
-                "CanGoPrevious",
-                "CanPlay",
-                "CanPause",
-                "CanControl",
-                "CanSeek",
-            ]:
-                ret[property_name] = self.Get(interface, property_name)
+            for prop in (
+                    "PlaybackStatus", "Metadata", "Position", "Volume",
+                    "Shuffle", "LoopStatus", "CanGoNext", "CanGoPrevious",
+                    "CanPlay", "CanPause", "CanControl", "CanSeek",
+            ):
+                ret[prop] = self.Get(interface, prop)
         return ret
 
     def Set(self, interface, property_name, new_value):
@@ -407,6 +368,8 @@ class MPRIS(Server):
             changed_properties (dict): Properties that changed with new values
             invalidated_properties (list): Properties that were invalidated
         """
+        if self.__bus is None:
+            return
         self.__bus.emit_signal(
             None,
             self.__MPRIS_PATH,
@@ -414,7 +377,7 @@ class MPRIS(Server):
             "PropertiesChanged",
             GLib.Variant.new_tuple(
                 GLib.Variant("s", interface_name),
-                GLib.Variant("a{sv}", changed_properties),  # type: ignore
+                GLib.Variant("a{sv}", changed_properties),
                 GLib.Variant("as", invalidated_properties),
             ),
         )
@@ -427,48 +390,77 @@ class MPRIS(Server):
         """
         return self.__doc__
 
+    def _emit_seeked(self, position_us: int):
+        """Emit the MPRIS Seeked signal with the new position in microseconds.
+
+        Per spec, Seeked is the correct way to notify clients of a position
+        jump, NOT a PropertiesChanged on Position.
+        """
+        if self.__bus is None:
+            return
+        self.__bus.emit_signal(
+            None,
+            self.__MPRIS_PATH,
+            self.__MPRIS_PLAYER_IFACE,
+            "Seeked",
+            GLib.Variant.new_tuple(GLib.Variant("x", int(position_us))),
+        )
+
     def _get_status(self):
-        playing = self.player.playing
-        if playing:
-            return "Playing"
-        else:
-            return "Paused"
+        return "Playing" if self.player.playing else "Paused"
 
     def _on_preset_changed(self, *args):
+        """Handle track changes — update full metadata and notify clients."""
         if self.player.playing_track is None:
             return
 
         track = self.player.playing_track
-        self.__metadata["mpris:trackid"] = GLib.Variant(
-            "o", f"/Track/{track.id}"
-        )
-        self.__metadata["xesam:title"] = GLib.Variant(
-            "s", track.name
-        )
-        self.__metadata["xesam:album"] = GLib.Variant(
-            "s", track.album.name
-        )
-        self.__metadata["xesam:artist"] = GLib.Variant(
-            "as", [track.artist.name]
-        )
-        self.__metadata["mpris:length"] = GLib.Variant(
-            "x", track.duration * 1_000_000
-        )
+        self.__metadata["mpris:trackid"] = GLib.Variant("o", f"/Track/{track.id}")
+        self.__metadata["xesam:title"] = GLib.Variant("s", track.name)
+        self.__metadata["xesam:album"] = GLib.Variant("s", track.album.name)
+        self.__metadata["xesam:artist"] = GLib.Variant("as", [track.artist.name])
+        self.__metadata["mpris:length"] = GLib.Variant("x", track.duration * 1_000_000)
 
-        # 320 px should always be fetched for example by queue logic
         url = f"file://{utils.IMG_DIR}/{track.album.id}_320.jpg"
-
         self.__metadata["mpris:artUrl"] = GLib.Variant("s", url)
 
-        changed_properties = {
-            "Metadata": GLib.Variant("a{sv}", self.__metadata),
-            "Position": GLib.Variant("x", self.player.query_position() / 1000),
-            "CanGoNext": GLib.Variant("b", self.player.can_go_next),
-            "CanGoPrevious": GLib.Variant("b", self.player.can_go_prev),
-            "PlaybackStatus": GLib.Variant("s", self._get_status()),
-            "CanControl": GLib.Variant("b", True),
-        }
-        self.PropertiesChanged(self.__MPRIS_PLAYER_IFACE, changed_properties, [])
+        self.PropertiesChanged(
+            self.__MPRIS_PLAYER_IFACE,
+            {
+                "Metadata": GLib.Variant("a{sv}", self.__metadata),
+                "CanGoNext": GLib.Variant("b", self.player.can_go_next),
+                "CanGoPrevious": GLib.Variant("b", self.player.can_go_prev),
+                "PlaybackStatus": GLib.Variant("s", self._get_status()),
+                "CanControl": GLib.Variant("b", True),
+            },
+            [],
+        )
+        # New track starts at position 0 — emit Seeked so clients reset
+        self._emit_seeked(0)
+
+    def _on_duration_changed(self, *args):
+        """Handle duration updates separately from track changes.
+
+        Duration can arrive asynchronously after song-changed on streams,
+        so we update mpris:length and notify without touching other metadata.
+        """
+        if self.player.playing_track is None:
+            return
+
+        duration_us = int(self.player.query_duration() / 1000)
+        if duration_us <= 0:
+            return
+
+        current_length = self.__metadata.get("mpris:length", GLib.Variant("x", 0)).get_int64()
+        if current_length == duration_us:
+            return  # No actual change, skip the signal
+
+        self.__metadata["mpris:length"] = GLib.Variant("x", duration_us)
+        self.PropertiesChanged(
+            self.__MPRIS_PLAYER_IFACE,
+            {"Metadata": GLib.Variant("a{sv}", self.__metadata)},
+            [],
+        )
 
     def _on_volume_changed(self, _player, volume):
         self.PropertiesChanged(
@@ -476,15 +468,20 @@ class MPRIS(Server):
         )
 
     def _on_playing_changed(self, *args):
-        properties = {"PlaybackStatus": GLib.Variant("s", self._get_status())}
-        self.PropertiesChanged(self.__MPRIS_PLAYER_IFACE, properties, [])
+        self.PropertiesChanged(
+            self.__MPRIS_PLAYER_IFACE,
+            {"PlaybackStatus": GLib.Variant("s", self._get_status())},
+            [],
+        )
 
     def _on_shuffle_changed(self, *args):
-        properties = {"Shuffle": GLib.Variant("b", self.player.shuffle)}
-        self.PropertiesChanged(self.__MPRIS_PLAYER_IFACE, properties, [])
+        self.PropertiesChanged(
+            self.__MPRIS_PLAYER_IFACE, {"Shuffle": GLib.Variant("b", self.player.shuffle)}, []
+        )
 
     def _on_repeat_changed(self, *args):
         status = self.REPEAT_TYPE_TO_MPRIS_LOOP[self.player.repeat_type]
-        properties = {"LoopStatus": GLib.Variant("s", status)}
-        self.PropertiesChanged(self.__MPRIS_PLAYER_IFACE, properties, [])
+        self.PropertiesChanged(
+            self.__MPRIS_PLAYER_IFACE, {"LoopStatus": GLib.Variant("s", status)}, []
+        )
 
