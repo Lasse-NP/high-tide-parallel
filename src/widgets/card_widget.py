@@ -47,7 +47,10 @@ class HTCardWidget(Adw.BreakpointBin, IDisconnectable):
 
     __gtype_name__ = "HTCardWidget"
 
+    image_overlay = Gtk.Template.Child()
     image = Gtk.Template.Child()
+    play_revealer = Gtk.Template.Child()
+    play_overlay_button = Gtk.Template.Child()
     click_gesture = Gtk.Template.Child()
     title_label = Gtk.Template.Child()
     detail_label = Gtk.Template.Child()
@@ -97,6 +100,17 @@ class HTCardWidget(Adw.BreakpointBin, IDisconnectable):
         right_click.set_button(3)
         right_click.connect("pressed", self._on_right_click)
         self.add_controller(right_click)
+
+        motion_controller = Gtk.EventControllerMotion()
+        motion_controller.connect("enter", self._on_hover_enter)
+        motion_controller.connect("leave", self._on_hover_leave)
+        self.image_overlay.add_controller(motion_controller)
+
+        self.play_overlay_button.connect("clicked", self._on_play_overlay_clicked)
+
+        self._song_changed_handler: int | None = None
+        self.connect("map", self._on_map)
+        self.connect("unmap", self._on_unmap)
 
         self.set_cursor_from_name("pointer")
 
@@ -179,9 +193,7 @@ class HTCardWidget(Adw.BreakpointBin, IDisconnectable):
             item_id = specific_artist.id if specific_artist.id is not None else 0
             placeholder = HTDefaultImageWidget(name, item_id, size=155)
             placeholder.add_css_class("default-image-box")
-            parent = self.image.get_parent()
-            parent.remove(self.image)
-            parent.prepend(placeholder)
+            self.image_overlay.set_child(placeholder)
             utils.setup_artist_image(self.item, placeholder)
         else:
             threading.Thread(target=utils.add_image, args=(self.image, self.item)).start()
@@ -301,6 +313,24 @@ class HTCardWidget(Adw.BreakpointBin, IDisconnectable):
             else:
                 selected_playlist.add([self.item.id])
 
+    def _on_hover_enter(self, *args) -> None:
+        self.play_revealer.set_reveal_child(True)
+
+    def _on_hover_leave(self, *args) -> None:
+        self.play_revealer.set_reveal_child(False)
+
+    def _on_play_overlay_clicked(self, *args) -> None:
+        """Start playback of this card's item, respecting current shuffle state."""
+        player = utils.player_object
+        if not player:
+            return
+
+        item = self.item
+        if isinstance(item, PageItem):
+            return
+
+        threading.Thread(target=player.play_this, args=(item,)).start()
+
     def _on_click(self, *_) -> None:
         """Handle click events on the card.
 
@@ -321,3 +351,48 @@ class HTCardWidget(Adw.BreakpointBin, IDisconnectable):
                         utils.player_object.play_this(resolved)
 
             threading.Thread(target=_get).start()
+
+    def _on_map(self, *args) -> None:
+        if utils.player_object and self._song_changed_handler is None:
+            self._song_changed_handler = utils.player_object.connect(
+                "song-changed", self._on_song_changed
+            )
+        self._sync_playing_state()
+
+    def _on_unmap(self, *args) -> None:
+        if utils.player_object and self._song_changed_handler is not None:
+            utils.player_object.disconnect(self._song_changed_handler)
+            self._song_changed_handler = None
+        self.remove_css_class("playing-card")
+
+    def _sync_playing_state(self) -> None:
+        if not utils.player_object or not utils.player_object.playing_track:
+            return
+        if self._is_currently_playing():
+            self.add_css_class("playing-card")
+
+    def _on_song_changed(self, player) -> None:
+        if self._is_currently_playing():
+            self.add_css_class("playing-card")
+        else:
+            self.remove_css_class("playing-card")
+
+    def _is_currently_playing(self) -> bool:
+        player = utils.player_object
+        if not player or not player.playing_track:
+            return False
+        track = player.playing_track
+        if isinstance(self.item, Track):
+            return self.item.id == track.id
+        if isinstance(self.item, Album) and track.album:
+            return self.item.id == track.album.id
+        if isinstance(self.item, Playlist):
+            cmap = player.current_mix_album_playlist
+            return isinstance(cmap, Playlist) and cmap.id == self.item.id
+        if isinstance(self.item, (Mix, MixV2)):
+            cmap = player.current_mix_album_playlist
+            return isinstance(cmap, (Mix, MixV2)) and cmap.id == self.item.id
+        if isinstance(self.item, Artist):
+            cmap = player.current_mix_album_playlist
+            return isinstance(cmap, Artist) and cmap.id == self.item.id
+        return False

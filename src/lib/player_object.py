@@ -133,7 +133,7 @@ class PlayerObject(GObject.GObject):
         self.id_list: List[str] = []
 
         self.queue: List[Track] = []
-        self.current_mix_album_playlist: Union[Mix, MixV2, Album, Playlist, List[Track], Track] | None = None
+        self.current_mix_album_playlist: Union[Mix, MixV2, Album, Playlist, Artist, List[Track], Track] | None = None
         self._tracks_to_play: List[Track] = []
         self.tracks_to_play: List[Track] = []
         self._shuffled_tracks_to_play: List[Track] = []
@@ -270,13 +270,16 @@ class PlayerObject(GObject.GObject):
         position: int = self.query_position() or 0
         duration: int = self.query_duration()
 
-        self.pipeline.set_state(Gst.State.NULL)
-        self._setup_audio_sink(sink_type)
+        if self.playbin:
+            saved_volume = self.playbin.get_property("volume")
+            self.pipeline.set_state(Gst.State.NULL)
+            self._setup_audio_sink(sink_type)
+            self.playbin.set_property("volume", saved_volume)
 
-        if was_playing and duration != 0:
-            self.pipeline.set_state(Gst.State.PLAYING)
-            self.seek_after_sink_reload = position / duration
-        self.use_about_to_finish = True
+            if was_playing and duration != 0:
+                self.pipeline.set_state(Gst.State.PLAYING)
+                self.seek_after_sink_reload = position / duration
+            self.use_about_to_finish = True
 
     def _on_bus_eos(self, *args) -> None:
         """Handle end of stream."""
@@ -478,7 +481,7 @@ class PlayerObject(GObject.GObject):
             GLib.timeout_add(2000, self.previous_timer_callback)
 
     def play_this(
-        self, thing: Union[Mix, MixV2, Album, Playlist, List[Track], Track], index: int = 0
+            self, thing: Union[Mix, MixV2, Album, Playlist, Artist, List[Track], Track], index: int = 0
     ) -> None:
         """Play tracks from a mix, album, playlist, or artist.
 
@@ -513,7 +516,7 @@ class PlayerObject(GObject.GObject):
             self.play_track(track)
 
     def shuffle_this(
-        self, thing: Union[Mix, MixV2, Album, Playlist, List[Track], Track]
+            self, thing: Union[Mix, MixV2, Album, Playlist, Artist, List[Track], Track]
     ) -> None:
         """Same as play_this, but enables shuffle mode.
 
@@ -612,12 +615,15 @@ class PlayerObject(GObject.GObject):
         We just need to tear it down and restart it so playback begins from the start.
         """
         logger.debug(f"[PIPELINE] Restarting prefetched track={track.id} without re-fetch")
-        self.use_about_to_finish = False
-        self.pipeline.set_state(Gst.State.NULL)
-        self.set_track(track)
-        if self._playing:
-            self.play()
-        self.use_about_to_finish = True
+        if self.playbin:
+            self.use_about_to_finish = False
+            saved_volume = self.playbin.get_property("volume")
+            self.pipeline.set_state(Gst.State.NULL)
+            self.playbin.set_property("volume", saved_volume)
+            self.set_track(track)
+            if self._playing:
+                self.play()
+            self.use_about_to_finish = True
 
     def _play_track_thread(self, track: Track, gapless=False, prefetched=False) -> None:
         """Thread for loading and playing a track.
@@ -750,8 +756,9 @@ class PlayerObject(GObject.GObject):
         if self.playbin:
             if not gapless:
                 self.use_about_to_finish = False
+                saved_volume = self.playbin.get_property("volume")
                 self.pipeline.set_state(Gst.State.NULL)
-                self.playbin.set_property("volume", self.playbin.get_property("volume"))
+                self.playbin.set_property("volume", saved_volume)
             self.playbin.set_property("uri", music_url)
         else:
             raise RuntimeError("Playbin is not available")

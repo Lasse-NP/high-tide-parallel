@@ -808,10 +808,6 @@ class HighTideWindow(Adw.ApplicationWindow):
         self.duration = self.player_object.duration
         end_value = self.duration / Gst.SECOND
 
-        current = self.player_object.query_volume()
-        if abs(self.volume_button.get_value() - current) > 0.01:
-            self.volume_button.set_value(current)
-
         position = self.player_object.query_position(default=None)
         if position is None:
             return
@@ -881,6 +877,7 @@ class HighTideWindow(Adw.ApplicationWindow):
         if self.settings.get_boolean("quadratic-volume") != state:
             self.player_object.quadratic_volume = state
             self.settings.set_boolean("quadratic-volume", state)
+            self.player_object.change_volume(self.volume_button.get_value())
 
     def change_smooth_scrolling(self, state):
         if self.settings.get_boolean("smooth-scrolling") != state:

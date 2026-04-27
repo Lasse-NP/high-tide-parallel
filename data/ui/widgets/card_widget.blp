@@ -21,16 +21,33 @@ template $HTCardWidget: Adw.BreakpointBin {
 
     GestureClick click_gesture {}
 
-    Image image {
+    Overlay image_overlay {
       halign: center;
-      icon-name: 'record-track-symbolic';
-      pixel-size: 155;
       valign: center;
-      overflow: hidden;
-
-      styles [
-        "card-image",
-      ]
+      child: Image image {
+        halign: center;
+        icon-name: 'record-track-symbolic';
+        pixel-size: 155;
+        valign: center;
+        overflow: hidden;
+        styles [
+          "card-image",
+        ]
+      };
+      [overlay]
+      Revealer play_revealer {
+        transition-type: crossfade;
+        transition-duration: 150;
+        valign: center;
+        halign: center;
+        Button play_overlay_button {
+          icon-name: "media-playback-start-symbolic";
+          styles [
+            "play-overlay",
+            "card-play-overlay",
+          ]
+        }
+      }
     }
 
     Label title_label {

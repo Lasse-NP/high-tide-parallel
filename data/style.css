@@ -17,6 +17,7 @@
 .card-bg {
   transition: opacity, background-color 0.15s ease-in-out;
   border-radius: 14px;
+  border: 1px solid transparent;
 }
 
 .card-bg:hover {
@@ -34,12 +35,20 @@
 
 .play-overlay image {
   color: white;
-  -gtk-icon-size: 25px;
+}
+
+.card-play-overlay image {
+  -gtk-icon-size: 50px;
+}
+
+.tracks-list-box .play-overlay image {
   opacity: 0;
+  -gtk-icon-size: 25px;
   transition: opacity 0.3s ease-in-out;
 }
 
-row:hover .play-overlay image {
+.tracks-list-box row:hover .play-overlay image,
+.tracks-list-box row.playing-track .play-overlay image {
   opacity: 1;
 }
 
@@ -203,6 +212,15 @@ row:hover .play-overlay image {
 
 .track-progress-overlay {
     background-color: alpha(@accent_color, 0.08);
+}
+
+.playing-card {
+    background-color: alpha(@accent_color, 0.15);
+    border: 1px solid @accent_color;
+}
+
+.playing-card:hover {
+    background-color: alpha(@accent_color, 0.22);
 }
 
 .draggable-box row.drop-target-above {
