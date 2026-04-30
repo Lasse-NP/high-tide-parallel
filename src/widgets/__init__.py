@@ -2,6 +2,7 @@ from .auto_load_widget import HTAutoLoadWidget
 from .card_widget import HTCardWidget
 from .carousel_widget import HTCarouselWidget
 from .generic_track_widget import HTGenericTrackWidget
+from .link_card_widget import HTLinkCardWidget
 from .link_label_widget import HTLinkLabelWidget
 from .lyrics_widget import HTLyricsWidget
 from .queue_widget import HTQueueWidget

@@ -243,13 +243,13 @@ class Page(Adw.NavigationPage, IDisconnectable):
 
         buttons_for_page = 0
 
-        flow_box = Gtk.FlowBox(homogeneous=True, height_request=100)
+        flow_box = Gtk.FlowBox(homogeneous=True, height_request=100, css_classes=["no-hover-flowbox"])
         cards_box.append(flow_box)
         self.append(box)
 
         for index, item in enumerate(items):
             if buttons_for_page == 4:
-                flow_box = Gtk.FlowBox(homogeneous=True, height_request=100)
+                flow_box = Gtk.FlowBox(homogeneous=True, height_request=100, css_classes=["no-hover-flowbox"])
                 cards_box.append(flow_box)
                 buttons_for_page = 0
             button = self.get_page_link_card(item)
@@ -349,25 +349,10 @@ class Page(Adw.NavigationPage, IDisconnectable):
         Returns:
             Gtk.Button: A button configured to navigate to the linked page
         """
-
-        # TODO make a separate widget for this
-
-        button = Gtk.Button(
-            label=page_link.title,
-            margin_start=12,
-            margin_end=12,
-            hexpand=True,
-            width_request=200,
-            vexpand=True,
-        )
-        self.signals.append(
-            (
-                button,
-                button.connect("clicked", self.on_page_link_clicked, page_link),
-            )
-        )
-
-        return button
+        from ..widgets.link_card_widget import HTLinkCardWidget
+        card = HTLinkCardWidget(page_link)
+        self.disconnectables.append(card)
+        return card
 
     def on_page_link_clicked(self, btn, page_link):
         """Handle page link button clicks by navigating to the linked page.

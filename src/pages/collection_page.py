@@ -136,7 +136,7 @@ class HTCollectionPage(Page):
         self._playlist_grid = HTCappedGridWidget(
             utils.playlist_and_favorite_playlists,
             title="Playlists",
-            row_limit=4,
+            row_limit=3,
             columns=5,
         )
         self.content.append(self._playlist_grid)

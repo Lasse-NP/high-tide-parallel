@@ -262,3 +262,26 @@ dropdown button:not(:hover) {
     background: none;
     box-shadow: none;
 }
+
+.page-link-card {
+  padding: 0px;
+  border-radius: 14px;
+  border: none;
+  box-shadow: none;
+  min-height: 90px;
+}
+
+.page-link-card-scrim {
+  background: linear-gradient(
+    to bottom,
+    alpha(black, 0.0) 0%,
+    alpha(black, 0.55) 100%
+  );
+}
+
+.page-link-card-label {
+    font-size: 13pt;
+    font-weight: bold;
+    color: white;
+    text-shadow: 0px 1px 6px alpha(black, 0.5);
+}

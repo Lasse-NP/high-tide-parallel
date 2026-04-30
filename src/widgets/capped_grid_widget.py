@@ -6,8 +6,13 @@ from ..widgets.card_widget import HTCardWidget
 
 
 class HTCappedGridWidget(Gtk.Box):
-    def __init__(self, items: list, title: str = "", row_limit: int = 4, columns: int = 5):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    def __init__(self, items: list, title: str = "", row_limit: int = 3, columns: int = 5):
+        super().__init__(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=6,
+            margin_start=14,
+            margin_end=14,
+        )
 
         self._all_items = list(items)
         self._columns = columns
@@ -16,14 +21,16 @@ class HTCappedGridWidget(Gtk.Box):
 
         self._title_label = Gtk.Label(
             label=title,
-            halign=Gtk.Align.START,
+            xalign=0.0,
+            hexpand=True,
+            margin_start=10,
             css_classes=["title-3"],
         )
         self.append(self._title_label)
 
         self._flow_box = Gtk.FlowBox(
             selection_mode=Gtk.SelectionMode.NONE,
-            min_children_per_line=columns,
+            min_children_per_line=2,
             max_children_per_line=columns,
             homogeneous=True,
             css_classes=["no-hover-flowbox"],
