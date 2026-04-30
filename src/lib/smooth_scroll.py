@@ -20,6 +20,10 @@ class SmoothScroller:
         if not utils.smooth_scroll_enabled:
             return False
         adj = self._scrolled_window.get_vadjustment()
+
+        if self._animation is None or self._animation.get_state() != Adw.AnimationState.PLAYING:
+            self._target_value = adj.get_value()
+
         step = adj.get_page_size() * 0.10
         self._target_value = max(
             adj.get_lower(),

@@ -24,6 +24,7 @@ from gi.repository import GLib
 from ..lib import utils
 from .page import Page
 from ..widgets.carousel_widget import HTCarouselWidget
+from ..widgets.capped_grid_widget import HTCappedGridWidget
 
 from tidalapi.media import Track
 from tidalapi.album import Album
@@ -41,6 +42,7 @@ class HTCollectionPage(Page):
     def __init__(self):
         super().__init__()
         self._last_counts = None
+        self._playlist_grid: HTCappedGridWidget | None = None
 
     def _load_async(self) -> None: ...
 
@@ -48,7 +50,7 @@ class HTCollectionPage(Page):
         self.set_tag("collection")
         self.set_title(_("Collection"))
         self._last_counts = None
-        GLib.idle_add(self._build_carousels)
+        GLib.idle_add(self._build_collection)
         self.connect("showing", self.rebuild_if_changed)
 
     def _current_counts(self):
@@ -94,19 +96,29 @@ class HTCollectionPage(Page):
             self._rebuild_all()
             return
 
-        title = type_to_title[type(item)]
+        if isinstance(item, Playlist):
+            if self._playlist_grid is not None:
+                if removed:
+                    self._playlist_grid.remove_item_by_id(item.id)
+                else:
+                    self._playlist_grid.update_items(utils.playlist_and_favorite_playlists)
+            else:
+                self._rebuild_all()
+            return
 
+        title = type_to_title[type(item)]
         child = self.content.get_first_child()
         while child:
             if isinstance(child, HTCarouselWidget) and child.title == title:
-                print(f"Found carousel '{title}', removed={removed}")
+                logger.debug(f"[COLLECTION] Found carousel '{title}', removed={removed}")
                 if removed:
                     child.remove_item_by_id(item.id)
                 else:
                     child.update_items(type_to_items[type(item)])
                 return
             child = child.get_next_sibling()
-        print(f"Carousel '{title}' not found!")
+        logger.warning(f"[COLLECTION] Carousel '{title}' not found, falling back to full rebuild")
+        self._rebuild_all()
 
     def _rebuild_all(self) -> None:
         logger.debug("[COLLECTION] _rebuild_all start")
@@ -115,13 +127,19 @@ class HTCollectionPage(Page):
             next_child = child.get_next_sibling()
             self.content.remove(child)
             child = next_child
-        self._build_carousels()
+        self._build_collection()
         logger.debug("[COLLECTION] _rebuild_all complete")
 
-    def _build_carousels(self) -> None:
+    def _build_collection(self) -> None:
         logger.debug("[COLLECTION] _build_carousels start")
         self.new_carousel_for(_("My Mixes and Radios"), utils.favourite_mixes)
-        self.new_carousel_for(_("Playlists"), utils.playlist_and_favorite_playlists)
+        self._playlist_grid = HTCappedGridWidget(
+            utils.playlist_and_favorite_playlists,
+            title="Playlists",
+            row_limit=4,
+            columns=5,
+        )
+        self.content.append(self._playlist_grid)
         self.new_carousel_for(_("Albums"), utils.favourite_albums)
         self.new_carousel_for(_("Tracks"), utils.favourite_tracks)
         self.new_carousel_for(_("Artists"), utils.favourite_artists)

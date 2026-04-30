@@ -53,7 +53,6 @@ class HTCarouselWidget(Gtk.Box, IDisconnectable):
         IDisconnectable.__init__(self)
         super().__init__()
 
-
         self.signals.append((
             self.next_button,
             self.next_button.connect("clicked", self.carousel_go_next),

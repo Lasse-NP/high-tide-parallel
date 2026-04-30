@@ -251,3 +251,14 @@
 dropdown button:not(:hover) {
   background-color: transparent;
 }
+
+.no-hover-flowbox > flowboxchild {
+    background: none;
+    padding: 0;
+}
+
+.no-hover-flowbox > flowboxchild:hover,
+.no-hover-flowbox > flowboxchild:focus {
+    background: none;
+    box-shadow: none;
+}
