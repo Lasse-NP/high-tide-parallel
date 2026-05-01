@@ -155,6 +155,7 @@ class PlayerObject(GObject.GObject):
         self._prefetched_url: str | None = None
         self._prefetch_track: Track | None = None
         self._prefetch_ready = False
+        self._prefetch_generation: int = 0
 
         # DEBUG DATA: buffering state tracking
         self._buffering = False
@@ -606,6 +607,10 @@ class PlayerObject(GObject.GObject):
         if not gapless:
             self.next_track = None
             self._next_track_prefetched = False
+            self._prefetch_track = None
+            self._prefetch_ready = False
+            self._prefetched_url = None
+            self._prefetch_generation += 1
 
         threading.Thread(target=self._play_track_thread, args=(track, gapless, prefetched)).start()
 
@@ -809,12 +814,14 @@ class PlayerObject(GObject.GObject):
         """Fetch the stream URL for the next track in the background.
         Does not touch the pipeline at all.
         """
+        generation = self._prefetch_generation
         try:
             stream = track.get_stream()
             manifest = stream.get_stream_manifest()
             music_url = self._resolve_url(stream, manifest, track)
-            logger.info(f"[GAPLESS] Prefetch complete for track={track.id}")
-            # Store result — GStreamer will pick it up on the next about-to-finish call
+            if self._prefetch_generation != generation:
+                logger.info(f"[GAPLESS] Prefetch for track={track.id} is stale, discarding")
+                return
             self._prefetched_url = music_url
             self._prefetch_ready = True
             GLib.idle_add(self._apply_prefetched_uri)
@@ -827,7 +834,6 @@ class PlayerObject(GObject.GObject):
         """Called on the main thread once a prefetch completes. Sets the URI on playbin."""
         if not self._prefetch_ready or not self._prefetched_url or not self._prefetch_track:
             return
-        logger.info(f"[GAPLESS] Applying prefetched URI for track={self._prefetch_track.id}")
 
         if self.queue and self.queue[0] is self._prefetch_track:
             self.queue.pop(0)
@@ -838,9 +844,6 @@ class PlayerObject(GObject.GObject):
         elif self._tracks_to_play and self._tracks_to_play[0] is self._prefetch_track:
             self._tracks_to_play.pop(0)
 
-        if self.playing_track:
-            self.played_songs.append(self.playing_track)
-
         logger.info(f"[GAPLESS] Applying prefetched URI for track={self._prefetch_track.id}")
         self.next_track = self._prefetch_track
         self._next_track_prefetched = True
@@ -848,6 +851,7 @@ class PlayerObject(GObject.GObject):
         self._prefetched_url = None
         self._prefetch_track = None
         self._prefetch_ready = False
+        self.tracks_to_play = self._tracks_to_play
 
     def _resolve_url(self, stream, manifest, track: Track) -> str:
         """Extract a playable URL from a stream and manifest.
