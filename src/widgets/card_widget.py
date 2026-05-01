@@ -378,10 +378,12 @@ class HTCardWidget(Adw.BreakpointBin, IDisconnectable):
             return
         if self._is_currently_playing():
             self.add_css_class("playing-card")
+            self.play_revealer.set_reveal_child(True)
 
     def _on_song_changed(self, player) -> None:
         if self._is_currently_playing():
             self.add_css_class("playing-card")
+            self.play_revealer.set_reveal_child(True)
         else:
             self.remove_css_class("playing-card")
             self.play_revealer.set_reveal_child(False)

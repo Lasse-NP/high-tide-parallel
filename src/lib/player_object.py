@@ -145,13 +145,16 @@ class PlayerObject(GObject.GObject):
         self.stream: Stream | None = None
         self.update_timer: int | None = None
         self.seek_after_sink_reload: float | None = None
-        self.seeked_to_end = False
         self._pending_seek_fraction: float | None = None
         self._seek_timer: int | None = None
 
         # next track variables for gapless
         self.next_track: Any | None = None
         self._next_track_prefetched: bool = False
+
+        self._prefetched_url: str | None = None
+        self._prefetch_track: Track | None = None
+        self._prefetch_ready = False
 
         # DEBUG DATA: buffering state tracking
         self._buffering = False
@@ -301,7 +304,6 @@ class PlayerObject(GObject.GObject):
             )
 
         if self._repeat_type == RepeatType.SONG:
-            self.seeked_to_end = False
             self.seek(0)
             self.play()
             return
@@ -469,7 +471,6 @@ class PlayerObject(GObject.GObject):
             GLib.source_remove(self.update_timer)
         self.update_timer = GLib.timeout_add(16, self._update_slider_callback)
 
-        self.seeked_to_end = False
         if self.seek_after_sink_reload:
             self.seek(self.seek_after_sink_reload)
             self.seek_after_sink_reload = None
@@ -669,36 +670,7 @@ class PlayerObject(GObject.GObject):
             if not gapless:
                 self.apply_replaygain_tags()
 
-            music_url: str = ""
-
-            if stream.manifest_mime_type == ManifestMimeType.MPD:
-                data = stream.get_manifest_data()
-                major, minor, micro, nano = Gst.version()
-                if data:
-                    # file:// MPD support in adaptivedemux2 landed in 1.26
-                    if (major, minor) >= (1, 26):
-                        mpd_path = Path(utils.CACHE_DIR, f"manifest_{track.id}.mpd")
-                        if not mpd_path.exists():
-                            with open(mpd_path, "w") as file:
-                                file.write(data)
-                        music_url = "file://{}".format(mpd_path)
-                    else:
-                        if isinstance(data, str):
-                            mpd_bytes = data.encode("utf-8")
-                        elif isinstance(data, bytes):
-                            mpd_bytes = data
-                        else:
-                            raise RuntimeError(f"Unexpected manifest data type: {type(data)}")
-
-                        mpd_b64 = base64.b64encode(mpd_bytes).decode("ascii")
-                        music_url = "data:application/dash+xml;base64," + mpd_b64
-                else:
-                    raise AttributeError("No MPD manifest available!")
-            elif stream.manifest_mime_type == ManifestMimeType.BTS:
-                urls = manifest.get_urls()
-                if isinstance(urls, list):
-                    music_url = urls[0]
-
+            music_url = self._resolve_url(stream, manifest, track)
             logger.debug(
                 f"[FETCH] Total fetch time {time.monotonic() - t_start:.2f}s "
                 f"url_prefix={str(music_url)[:80]}"
@@ -793,6 +765,9 @@ class PlayerObject(GObject.GObject):
             logger.info("[GAPLESS] Ignoring about-to-finish: repeat-one active, EOS will seek to 0")
             return
 
+        if not self.gapless_enabled or not self.use_about_to_finish:
+            return
+
         # DEBUG DATA
         pos_ns = self.query_position()
         dur_ns = self.query_duration()
@@ -805,17 +780,106 @@ class PlayerObject(GObject.GObject):
             f"tracks_remaining={len(self.tracks_to_play)}"
         )
 
-        # playbin is need as arg, but we access it later over self
-        if self.gapless_enabled and self.use_about_to_finish and self.tracks_to_play:
-            GLib.idle_add(self.play_next, True)
-            logger.info("Trying gapless playbck")
-        else:
-            logger.info(
-                f"[GAPLESS] Ignoring about-to-finish: "
-                f"gapless_enabled={self.gapless_enabled} "
-                f"use_about_to_finish={self.use_about_to_finish} "
-                f"tracks_to_play={len(self.tracks_to_play)}"
-            )
+        if self._prefetch_track is not None:
+            logger.info("[GAPLESS] Fetch already in progress, skipping duplicate about-to-finish")
+            return
+
+        next_track = self._get_next_track_peek()
+        if next_track is None:
+            logger.info("[GAPLESS] No next track to prefetch")
+            return
+
+        self._prefetch_track = next_track
+        self._prefetch_ready = False
+        logger.info(f"[GAPLESS] Starting background prefetch for track={next_track.id}")
+        threading.Thread(target=self._prefetch_thread, args=(next_track,)).start()
+
+    def _get_next_track_peek(self) -> Track | None:
+        """Look at what the next track would be without consuming it from the queue."""
+        if self.queue:
+            return self.queue[0]
+        track_list = self._shuffled_tracks_to_play if self._shuffle else self._tracks_to_play
+        if track_list:
+            return track_list[0]
+        if self._repeat_type == RepeatType.LIST and self.played_songs:
+            return self.played_songs[0]
+        return None
+
+    def _prefetch_thread(self, track: Track):
+        """Fetch the stream URL for the next track in the background.
+        Does not touch the pipeline at all.
+        """
+        try:
+            stream = track.get_stream()
+            manifest = stream.get_stream_manifest()
+            music_url = self._resolve_url(stream, manifest, track)
+            logger.info(f"[GAPLESS] Prefetch complete for track={track.id}")
+            # Store result — GStreamer will pick it up on the next about-to-finish call
+            self._prefetched_url = music_url
+            self._prefetch_ready = True
+            GLib.idle_add(self._apply_prefetched_uri)
+        except Exception:
+            logger.exception(f"[GAPLESS] Prefetch failed for track={track.id}")
+            self._prefetch_track = None
+            self._prefetch_ready = False
+
+    def _apply_prefetched_uri(self):
+        """Called on the main thread once a prefetch completes. Sets the URI on playbin."""
+        if not self._prefetch_ready or not self._prefetched_url or not self._prefetch_track:
+            return
+        logger.info(f"[GAPLESS] Applying prefetched URI for track={self._prefetch_track.id}")
+
+        if self.queue and self.queue[0] is self._prefetch_track:
+            self.queue.pop(0)
+        elif self._shuffle and self._shuffled_tracks_to_play and self._shuffled_tracks_to_play[
+            0] is self._prefetch_track:
+            self._shuffled_tracks_to_play.pop(0)
+            self._tracks_to_play.pop(0)
+        elif self._tracks_to_play and self._tracks_to_play[0] is self._prefetch_track:
+            self._tracks_to_play.pop(0)
+
+        if self.playing_track:
+            self.played_songs.append(self.playing_track)
+
+        logger.info(f"[GAPLESS] Applying prefetched URI for track={self._prefetch_track.id}")
+        self.next_track = self._prefetch_track
+        self._next_track_prefetched = True
+        self.playbin.set_property("uri", self._prefetched_url)
+        self._prefetched_url = None
+        self._prefetch_track = None
+        self._prefetch_ready = False
+
+    def _resolve_url(self, stream, manifest, track: Track) -> str:
+        """Extract a playable URL from a stream and manifest.
+        Mirrors the URL resolution logic in _play_track_thread.
+        """
+        music_url = ""
+        if stream.manifest_mime_type == ManifestMimeType.MPD:
+            data = stream.get_manifest_data()
+            major, minor, micro, nano = Gst.version()
+            if data:
+                if (major, minor) >= (1, 26):
+                    mpd_path = Path(utils.CACHE_DIR, f"manifest_{track.id}.mpd")
+                    if not mpd_path.exists():
+                        with open(mpd_path, "w") as file:
+                            file.write(data)
+                    music_url = "file://{}".format(mpd_path)
+                else:
+                    if isinstance(data, str):
+                        mpd_bytes = data.encode("utf-8")
+                    elif isinstance(data, bytes):
+                        mpd_bytes = data
+                    else:
+                        raise RuntimeError(f"Unexpected manifest data type: {type(data)}")
+                    mpd_b64 = base64.b64encode(mpd_bytes).decode("ascii")
+                    music_url = "data:application/dash+xml;base64," + mpd_b64
+            else:
+                raise AttributeError("No MPD manifest available!")
+        elif stream.manifest_mime_type == ManifestMimeType.BTS:
+            urls = manifest.get_urls()
+            if isinstance(urls, list):
+                music_url = urls[0]
+        return music_url
 
     def play_next(self, gapless=False):
         """Play the next track in the queue or playlist.
@@ -1009,20 +1073,20 @@ class PlayerObject(GObject.GObject):
         else:
             raise RuntimeError("Playbin is not available")
 
-    def seek(self, seek_fraction):
+    def seek(self, seek_fraction, allow_skip=True):
         """Seek to a position in the current track.
 
         Args:
             seek_fraction (float): Position as a fraction of total duration (0.0 to 1.0)
+            allow_skip (bool):
         """
-
-        # If a seek close to the end is performed then skip
-        # Avoids UI desync and stuck tracks
-        if not self.seeked_to_end and seek_fraction > 0.98:
-            self.use_about_to_finish = False
-            self.seeked_to_end = True
-            self.play_next()
-            return
+        if allow_skip:
+            duration_ns = self.query_duration()
+            if duration_ns > 0:
+                position_ns = int(seek_fraction * duration_ns)
+                remaining_s = (duration_ns - position_ns) / 1_000_000_000
+                if remaining_s < 4.0:
+                    seek_fraction = (duration_ns - 4_000_000_000) / duration_ns
 
         # Store the latest requested seek fraction
         self._pending_seek_fraction = seek_fraction

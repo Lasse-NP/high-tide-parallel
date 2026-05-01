@@ -223,6 +223,10 @@
     background-color: alpha(@accent_color, 0.22);
 }
 
+.playing-card .card-play-overlay image {
+    color: @accent_color;
+}
+
 .draggable-box row.drop-target-above {
   border-top: 2px solid var(--accent-color);
 }
