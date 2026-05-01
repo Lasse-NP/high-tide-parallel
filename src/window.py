@@ -147,12 +147,14 @@ class HighTideWindow(Adw.ApplicationWindow):
         utils.player_object = self.player_object
         self.player_object.set_discord_rpc(self.settings.get_boolean("discord-rpc"))
 
-        self.volume_button.set_value(
-            self.settings.get_int("last-volume") / 10
-        )
+        initial_volume = self.settings.get_int("last-volume") / 10
+        self.volume_button.set_value(initial_volume)
+        self.player_object.change_volume(initial_volume)
+        self._setting_volume_programmatically = False
 
         self.player_object.connect("notify::shuffle", self.on_shuffle_changed)
         self.player_object.connect("update-slider", self.update_slider)
+        self.player_object.connect("volume-changed", self.on_player_volume_changed)
         self.player_object.connect("song-changed", self.on_song_changed)
         self.player_object.connect("song-added-to-queue", self.on_song_added_to_queue)
         self.player_object.connect("notify::playing", self.update_controls)
@@ -732,9 +734,18 @@ class HighTideWindow(Adw.ApplicationWindow):
 
     @Gtk.Template.Callback("on_volume_changed")
     def on_volume_changed_func(self, widget):
+        # UI → Player Updates
+        if getattr(self, "_setting_volume_programmatically", False):
+            return
         value = widget.get_value()
         self.player_object.change_volume(value)
         self.settings.set_int("last-volume", int(value * 10))
+
+    def on_player_volume_changed(self, player, volume):
+        # Player → UI Updaates
+        self._setting_volume_programmatically = True
+        self.volume_button.set_value(volume)
+        self._setting_volume_programmatically = False
 
     @Gtk.Template.Callback("on_slider_seek")
     def on_slider_seek(self, *args):
