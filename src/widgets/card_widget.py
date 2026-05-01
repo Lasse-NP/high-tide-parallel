@@ -317,6 +317,8 @@ class HTCardWidget(Adw.BreakpointBin, IDisconnectable):
         self.play_revealer.set_reveal_child(True)
 
     def _on_hover_leave(self, *args) -> None:
+        if self.has_css_class("playing-card"):
+            return
         self.play_revealer.set_reveal_child(False)
 
     def _on_play_overlay_clicked(self, *args) -> None:
@@ -329,6 +331,7 @@ class HTCardWidget(Adw.BreakpointBin, IDisconnectable):
         if isinstance(item, PageItem):
             return
 
+        self._claim_playing_state()
         threading.Thread(target=player.play_this, args=(item,)).start()
 
     def _on_click(self, *_) -> None:
@@ -341,16 +344,21 @@ class HTCardWidget(Adw.BreakpointBin, IDisconnectable):
             self.activate_action(self.action, GLib.Variant("s", str(self.item.id)))
         elif isinstance(self.item, Track):
             if utils.player_object:
-                utils.player_object.play_this(self.item)
+                self._claim_playing_state()
+                threading.Thread(
+                    target=utils.player_object.play_this,
+                    args=(self.item,),
+                    daemon=True,
+                ).start()
         elif isinstance(self.item, PageItem) and self.item.type == "TRACK":
             page_item = self.item
             def _get():
                 if utils.player_object:
                     resolved = page_item.get()
                     if isinstance(resolved, Track):
+                        GLib.idle_add(self._claim_playing_state)
                         utils.player_object.play_this(resolved)
-
-            threading.Thread(target=_get).start()
+            threading.Thread(target=_get, daemon=True).start()
 
     def _on_map(self, *args) -> None:
         if utils.player_object and self._song_changed_handler is None:
@@ -376,6 +384,23 @@ class HTCardWidget(Adw.BreakpointBin, IDisconnectable):
             self.add_css_class("playing-card")
         else:
             self.remove_css_class("playing-card")
+            self.play_revealer.set_reveal_child(False)
+
+    def _claim_playing_state(self) -> None:
+        """Optimistically mark this card as playing and clear all other cards immediately."""
+        for card in self._collect_cards(self.get_root()):
+            card.remove_css_class("playing-card")
+            card.play_revealer.set_reveal_child(False)
+        self.add_css_class("playing-card")
+
+    def _collect_cards(self, widget):
+        child = widget.get_first_child()
+        while child is not None:
+            if isinstance(child, HTCardWidget) and child is not self:
+                yield child
+            else:
+                yield from self._collect_cards(child)
+            child = child.get_next_sibling()
 
     def _is_currently_playing(self) -> bool:
         player = utils.player_object

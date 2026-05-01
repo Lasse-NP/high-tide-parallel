@@ -1,4 +1,4 @@
-# carousel.py
+# tracks_list_widget.py
 #
 # Copyright 2023 Nokse
 #
@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-
+import threading
 from typing import Callable, List
 
 from gi.repository import Gtk
@@ -160,4 +160,18 @@ class HTTracksListWidget(Gtk.Box, IDisconnectable):
     def _on_tracks_row_selected(self, list_box, row) -> None:
         index = int(row.get_name())
 
-        utils.player_object.play_this(self.tracks, index)
+        track = self.tracks[index]
+        track_id = track.id
+
+        if self._last_playing_id and self._last_playing_id in self._track_widget_map:
+            self._track_widget_map[self._last_playing_id].remove_css_class("playing-track")
+
+        if track_id in self._track_widget_map:
+            self._track_widget_map[track_id].add_css_class("playing-track")
+            self._last_playing_id = track_id
+
+        threading.Thread(
+            target=utils.player_object.play_this,
+            args=(self.tracks, index),
+            daemon=True,
+        ).start()
