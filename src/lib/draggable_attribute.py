@@ -28,11 +28,17 @@ class HTDraggableList:
         self._list_type = list_type
         self._indicator_row = None
 
-        drop_target = Gtk.DropTarget.new(int, Gdk.DragAction.MOVE)
-        drop_target.connect("drop", self._on_drop)
-        drop_target.connect("motion", self._on_drag_motion)
-        drop_target.connect("leave", self._on_drag_leave)
-        self._list_box.add_controller(drop_target)
+        self._drop_target = Gtk.DropTarget.new(int, Gdk.DragAction.MOVE)
+        self._drop_target.connect("drop", self._on_drop)
+        self._drop_target.connect("motion", self._on_drag_motion)
+        self._drop_target.connect("leave", self._on_drag_leave)
+        self._list_box.add_controller(self._drop_target)
+
+    def set_reorder_enabled(self, enabled: bool) -> None:
+        if self._drop_target:
+            self._drop_target.set_actions(
+                Gdk.DragAction.MOVE if enabled else 0
+            )
 
     def _on_drop(self, target, value, x, y) -> bool:
         self._hide_drop_indicator()
@@ -53,6 +59,9 @@ class HTDraggableList:
 
         item = self._items.pop(source_index)
         self._items.insert(dest_index, item)
+
+        self._source_index = source_index
+        self._dest_index = dest_index
         self._rebuild_list()
 
         if self._on_reorder:
@@ -97,11 +106,17 @@ class HTDraggableList:
             self._indicator_row = None
 
     def _rebuild_list(self) -> None:
-        child = self._list_box.get_row_at_index(0)
-        while child:
-            self._list_box.remove(child)
-            child = self._list_box.get_row_at_index(0)
-        for index, item in enumerate(self._items):
-            row = self._row_factory(item, index)
-            row.set_name(str(index))
-            self._list_box.append(row)
+        source_row = self._list_box.get_row_at_index(self._source_index)
+        if source_row is None:
+            return
+
+        self._list_box.remove(source_row)
+        self._list_box.insert(source_row, self._dest_index)
+
+        i = 0
+        row = self._list_box.get_row_at_index(i)
+        while row:
+            row.set_name(str(i))
+            row.index = i
+            i += 1
+            row = self._list_box.get_row_at_index(i)

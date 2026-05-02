@@ -18,6 +18,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import inspect
 import threading
+from gi.repository import Gtk
 from gettext import gettext as _
 from ..lib import utils
 from .page import Page
@@ -36,13 +37,13 @@ class TrackListPage(Page):
         self.set_title(title)
         self.append(builder.get_object("_main"))
 
-        self.original_tracks = []
         self.current_sort = 0
         self.auto_load = None
 
         self.auto_load = builder.get_object("_auto_load")
         self.auto_load.set_scrolled_window(self.scrolled_window)
         self.auto_load.set_items(tracks)
+        self.original_tracks = list(tracks)
         if reload_function:
             try:
                 sig = inspect.signature(reload_function)
@@ -110,6 +111,24 @@ class TrackListPage(Page):
             threading.Thread(target=utils.add_image, args=(image, self.item)).start()
 
         sort_dropdown = builder.get_object("_sort_by_dropdown")
+
+        is_owned = (
+                hasattr(self, "item") and
+                hasattr(self.item, "creator") and
+                utils.session and
+                utils.session.user and
+                self.item.creator and
+                self.item.creator.id == utils.session.user.id
+        )
+        first_label = _("Personal Order") if is_owned else _("Original Order")
+
+        sort_dropdown.set_model(Gtk.StringList.new([
+            first_label,
+            _("Title"),
+            _("Artist"),
+            _("Album"),
+            _("Duration"),
+        ]))
         sort_dropdown.connect("notify::selected", self.on_sort_changed)
 
     def on_sort_changed(self, dropdown, _pspec):
@@ -145,4 +164,6 @@ class TrackListPage(Page):
         else:
             self.auto_load.set_function(None)
 
+
         self.auto_load.set_items(sorted_tracks)
+        self.auto_load.set_reorder_enabled(selected == 0)

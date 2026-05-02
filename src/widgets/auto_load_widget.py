@@ -138,6 +138,10 @@ class HTAutoLoadWidget(Gtk.Box, IDisconnectable):
         )
         self.signals.append((self.scrolled_window, self.handler_id))
 
+    def set_reorder_enabled(self, enabled: bool) -> None:
+        if hasattr(self, "_draggable") and self._draggable:
+            self._draggable.set_reorder_enabled(enabled)
+
     def th_load_items(self) -> None:
         """Load more items, this function can be called in a thread"""
         if self.is_loading or not self.function:
@@ -196,8 +200,8 @@ class HTAutoLoadWidget(Gtk.Box, IDisconnectable):
 
             if self._is_owned_playlist():
                 self.parent.add_css_class("draggable-box")
-                draggable = HTDraggableList()
-                draggable.setup(
+                self._draggable = HTDraggableList()
+                self._draggable.setup(
                     self.parent,
                     self.items,
                     row_factory=lambda track, i: HTGenericTrackWidget(track, playlist=self.playlist),
