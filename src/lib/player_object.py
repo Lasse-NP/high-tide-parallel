@@ -40,6 +40,14 @@ from . import discord_rpc, utils
 logger = logging.getLogger(__name__)
 
 
+def _tname(track) -> str:
+    """Return 'id:name' for a track, or 'None' if track is None. Used in debug logs."""
+    if track is None:
+        return "None"
+    name = getattr(track, "name", "?")
+    return f"{track.id}:{name}"
+
+
 class RepeatType(IntEnum):
     NONE = 0
     SONG = 1
@@ -406,6 +414,11 @@ class PlayerObject(GObject.GObject):
             track: If set, the playing track is set to it.
             Otherwise self.next_track is used
         """
+        logger.debug(
+            f"[SET_TRACK] called with track={_tname(track)} | "
+            f"current playing={_tname(self.playing_track)} | "
+            f"next_track={_tname(self.next_track)}"
+        )
         if self.playing_track:
             incoming = track or self.next_track
             if self.playing_track and incoming and self.playing_track.id != incoming.id:
@@ -434,6 +447,10 @@ class PlayerObject(GObject.GObject):
             self.duration = self.playing_track.duration * 1_000_000_000
         self.notify("can-go-prev")
         self.notify("can-go-next")
+        logger.debug(
+            f"[SET_TRACK] emitting song-changed | playing_track={_tname(self.playing_track)} | "
+            f"played_songs=[{', '.join(_tname(t) for t in self.played_songs[-3:])}] (last 3)"
+        )
         self.emit("song-changed")
 
     def _on_track_start(self, bus: Any, message: Any):
@@ -448,15 +465,12 @@ class PlayerObject(GObject.GObject):
         self._buffering = False
         self._buffering_started_at = None
         self._last_buffer_percent = 100
-        incoming_id = (
-            self.next_track.id if self.next_track and isinstance(self.next_track, Track)
-            else (self.playing_track.id if self.playing_track else "unknown")
-        )
         logger.debug(
-            f"[TRACK_START] stream-start signal for track={incoming_id} "
+            f"[TRACK_START] stream-start fired | "
+            f"playing={_tname(self.playing_track)} | "
+            f"next_track={_tname(self.next_track) if self.next_track else 'none'} | "
             f"use_about_to_finish={self.use_about_to_finish} "
-            f"gapless_enabled={self.gapless_enabled} "
-            f"next_track={'set' if self.next_track else 'none'}"
+            f"gapless_enabled={self.gapless_enabled}"
         )
 
         # apply replaygain first to avoid volume clipping
@@ -464,6 +478,9 @@ class PlayerObject(GObject.GObject):
         if self.stream:
             self.apply_replaygain_tags()
         self.set_track()
+        logger.debug(
+            f"[TRACK_START] after set_track() | playing_track is now={_tname(self.playing_track)}"
+        )
 
         if self.discord_rpc_enabled and self.playing_track:
             discord_rpc.set_activity(self.playing_track, 0)
@@ -600,8 +617,8 @@ class PlayerObject(GObject.GObject):
             prefetched: Whether the next track has already been fetched
         """
         logger.debug(
-            f"[PLAY_TRACK] Dispatching thread for track={track.id} "
-            f"title='{getattr(track, 'name', '?')}' gapless={gapless}"
+            f"[PLAY_TRACK] Dispatching thread for track={_tname(track)} "
+            f"gapless={gapless}"
         )
 
         if not gapless:
@@ -620,7 +637,7 @@ class PlayerObject(GObject.GObject):
         The pipeline already has the URI set from the gapless prefetch.
         We just need to tear it down and restart it so playback begins from the start.
         """
-        logger.debug(f"[PIPELINE] Restarting prefetched track={track.id} without re-fetch")
+        logger.debug(f"[PIPELINE] Restarting prefetched track={_tname(track)} without re-fetch")
         if self.playbin:
             self.use_about_to_finish = False
             saved_volume = self.playbin.get_property("volume")
@@ -640,7 +657,7 @@ class PlayerObject(GObject.GObject):
         """
 
         if prefetched:
-            logger.debug(f"[FETCH] Skipping fetch for track={track.id} — already prefetched")
+            logger.debug(f"[FETCH] Skipping fetch for track={_tname(track)} — already prefetched")
             GLib.idle_add(self._play_prefetched_track, track)
             return
 
@@ -726,8 +743,7 @@ class PlayerObject(GObject.GObject):
         """Set up and play track from URL."""
 
         logger.debug(
-            f"[PIPELINE] Setting URI for track={track.id} gapless={gapless} "
-            f"use_about_to_finish={self.use_about_to_finish} "
+            f"[PIPELINE] Setting URI for track={_tname(track)} gapless={gapless} "
             f"playing={self._playing}"
         )
         if self.playbin:
@@ -755,8 +771,9 @@ class PlayerObject(GObject.GObject):
             self.use_about_to_finish = True
 
         logger.debug(
-            f"[PIPELINE] URI set complete for track={track.id} "
-            f"pipeline_state={self.pipeline.get_state(0)[1]}"
+            f"[PIPELINE] URI set complete for track={_tname(track)} | "
+            f"next_track={_tname(self.next_track)} | "
+            f"playing_track={_tname(self.playing_track)}"
         )
 
     def play_next_gapless(self, playbin: Any):
@@ -779,7 +796,8 @@ class PlayerObject(GObject.GObject):
         pos_s = pos_ns / 1_000_000_000 if pos_ns else 0
         dur_s = dur_ns / 1_000_000_000 if dur_ns else 0
         logger.debug(
-            f"[GAPLESS] about-to-finish fired at {pos_s:.1f}s / {dur_s:.1f}s "
+            f"[GAPLESS] about-to-finish fired at {pos_s:.1f}s / {dur_s:.1f}s | "
+            f"playing={_tname(self.playing_track)} | "
             f"gapless_enabled={self.gapless_enabled} "
             f"use_about_to_finish={self.use_about_to_finish} "
             f"tracks_remaining={len(self.tracks_to_play)}"
@@ -796,18 +814,27 @@ class PlayerObject(GObject.GObject):
 
         self._prefetch_track = next_track
         self._prefetch_ready = False
-        logger.info(f"[GAPLESS] Starting background prefetch for track={next_track.id}")
+        logger.info(f"[GAPLESS] Starting background prefetch for track={_tname(next_track)}")
         threading.Thread(target=self._prefetch_thread, args=(next_track,)).start()
 
     def _get_next_track_peek(self) -> Track | None:
         """Look at what the next track would be without consuming it from the queue."""
         if self.queue:
-            return self.queue[0]
+            result = self.queue[0]
+            logger.debug(f"[PEEK] next from queue={_tname(result)}")
+            return result
         track_list = self._shuffled_tracks_to_play if self._shuffle else self._tracks_to_play
         if track_list:
-            return track_list[0]
+            result = track_list[0]
+            logger.debug(
+                f"[PEEK] next from {'shuffled' if self._shuffle else 'unshuffled'} list={_tname(result)}"
+            )
+            return result
         if self._repeat_type == RepeatType.LIST and self.played_songs:
-            return self.played_songs[0]
+            result = self.played_songs[0]
+            logger.debug(f"[PEEK] next from played_songs (repeat-list)={_tname(result)}")
+            return result
+        logger.debug("[PEEK] no next track found")
         return None
 
     def _prefetch_thread(self, track: Track):
@@ -820,13 +847,13 @@ class PlayerObject(GObject.GObject):
             manifest = stream.get_stream_manifest()
             music_url = self._resolve_url(stream, manifest, track)
             if self._prefetch_generation != generation:
-                logger.info(f"[GAPLESS] Prefetch for track={track.id} is stale, discarding")
+                logger.info(f"[GAPLESS] Prefetch for track={_tname(track)} is stale, discarding")
                 return
             self._prefetched_url = music_url
             self._prefetch_ready = True
             GLib.idle_add(self._apply_prefetched_uri)
         except Exception:
-            logger.exception(f"[GAPLESS] Prefetch failed for track={track.id}")
+            logger.exception(f"[GAPLESS] Prefetch failed for track={_tname(track)}")
             self._prefetch_track = None
             self._prefetch_ready = False
 
@@ -837,23 +864,32 @@ class PlayerObject(GObject.GObject):
 
         if self.queue and self.queue[0] is self._prefetch_track:
             self.queue.pop(0)
-        elif self._shuffle and self._shuffled_tracks_to_play and self._shuffled_tracks_to_play[0] is self._prefetch_track:
+        elif self._shuffle and self._shuffled_tracks_to_play and self._shuffled_tracks_to_play[
+            0] is self._prefetch_track:
             self._shuffled_tracks_to_play.pop(0)
-            try:
-                self._tracks_to_play.remove(self._prefetch_track)
-            except ValueError:
-                pass
+            self._tracks_to_play.pop(0)
         elif self._tracks_to_play and self._tracks_to_play[0] is self._prefetch_track:
             self._tracks_to_play.pop(0)
 
-        logger.info(f"[GAPLESS] Applying prefetched URI for track={self._prefetch_track.id}")
+        if self.playing_track:
+            self.played_songs.append(self.playing_track)
+
+        logger.info(
+            f"[GAPLESS] _apply_prefetched_uri | "
+            f"prefetch_track={_tname(self._prefetch_track)} | "
+            f"current playing={_tname(self.playing_track)} | "
+            f"shuffle={self._shuffle} | "
+            f"shuffled_remaining={len(self._shuffled_tracks_to_play)} | "
+            f"unshuffled_remaining={len(self._tracks_to_play)} | "
+            f"played_songs={len(self.played_songs)}"
+        )
         self.next_track = self._prefetch_track
         self._next_track_prefetched = True
         self.playbin.set_property("uri", self._prefetched_url)
         self._prefetched_url = None
         self._prefetch_track = None
         self._prefetch_ready = False
-        self.tracks_to_play = self._shuffled_tracks_to_play if self._shuffle else self._tracks_to_play
+        self.tracks_to_play = self._tracks_to_play
 
     def _resolve_url(self, stream, manifest, track: Track) -> str:
         """Extract a playable URL from a stream and manifest.
@@ -895,7 +931,8 @@ class PlayerObject(GObject.GObject):
         """
 
         logger.debug(
-            f"[PLAY_NEXT] gapless={gapless} next_track={'set' if self.next_track else 'none'} "
+            f"[PLAY_NEXT] called | playing={_tname(self.playing_track)} | "
+            f"next_track={_tname(self.next_track) if self.next_track else 'none'} | "
             f"repeat={RepeatType(self._repeat_type).name} queue={len(self.queue)} "
             f"tracks_remaining={len(self._tracks_to_play)} "
             f"shuffle={self._shuffle}"
@@ -949,7 +986,7 @@ class PlayerObject(GObject.GObject):
 
         if track_list and len(track_list) > 0:
             track = track_list.pop(0)
-            logger.debug(f"[PLAY_NEXT] Advancing to track={track.id}")
+            logger.debug(f"[PLAY_NEXT] Advancing to track={_tname(track)}")
             self.play_track(track, gapless=gapless)
 
     def play_previous(self):
