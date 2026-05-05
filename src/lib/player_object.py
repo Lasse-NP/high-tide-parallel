@@ -803,8 +803,11 @@ class PlayerObject(GObject.GObject):
             f"tracks_remaining={len(self.tracks_to_play)}"
         )
 
-        if self._prefetch_track is not None:
-            logger.info("[GAPLESS] Fetch already in progress, skipping duplicate about-to-finish")
+        if self._prefetch_track is not None or self.next_track is not None:
+            logger.info(
+                f"[GAPLESS] Skipping duplicate about-to-finish — "
+                f"prefetch_track={_tname(self._prefetch_track)} next_track={_tname(self.next_track)}"
+            )
             return
 
         next_track = self._get_next_track_peek()
