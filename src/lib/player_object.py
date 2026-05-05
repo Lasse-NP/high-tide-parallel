@@ -837,10 +837,12 @@ class PlayerObject(GObject.GObject):
 
         if self.queue and self.queue[0] is self._prefetch_track:
             self.queue.pop(0)
-        elif self._shuffle and self._shuffled_tracks_to_play and self._shuffled_tracks_to_play[
-            0] is self._prefetch_track:
+        elif self._shuffle and self._shuffled_tracks_to_play and self._shuffled_tracks_to_play[0] is self._prefetch_track:
             self._shuffled_tracks_to_play.pop(0)
-            self._tracks_to_play.pop(0)
+            try:
+                self._tracks_to_play.remove(self._prefetch_track)
+            except ValueError:
+                pass
         elif self._tracks_to_play and self._tracks_to_play[0] is self._prefetch_track:
             self._tracks_to_play.pop(0)
 
@@ -851,7 +853,7 @@ class PlayerObject(GObject.GObject):
         self._prefetched_url = None
         self._prefetch_track = None
         self._prefetch_ready = False
-        self.tracks_to_play = self._tracks_to_play
+        self.tracks_to_play = self._shuffled_tracks_to_play if self._shuffle else self._tracks_to_play
 
     def _resolve_url(self, stream, manifest, track: Track) -> str:
         """Extract a playable URL from a stream and manifest.
