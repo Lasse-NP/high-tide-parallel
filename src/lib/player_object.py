@@ -854,23 +854,35 @@ class PlayerObject(GObject.GObject):
                 return
             self._prefetched_url = music_url
             self._prefetch_ready = True
-            GLib.idle_add(self._apply_prefetched_uri)
+            GLib.idle_add(self._apply_prefetched_uri, generation)
         except Exception:
             logger.exception(f"[GAPLESS] Prefetch failed for track={_tname(track)}")
             self._prefetch_track = None
             self._prefetch_ready = False
 
-    def _apply_prefetched_uri(self):
+    def _apply_prefetched_uri(self, generation: int):
         """Called on the main thread once a prefetch completes. Sets the URI on playbin."""
+        if self._prefetch_generation != generation:
+            logger.info(
+                f"[GAPLESS] _apply_prefetched_uri: stale generation {generation} "
+                f"(current={self._prefetch_generation}), discarding"
+            )
+            self._prefetch_track = None
+            self._prefetch_ready = False
+            self._prefetched_url = None
+            return
+
         if not self._prefetch_ready or not self._prefetched_url or not self._prefetch_track:
             return
 
         if self.queue and self.queue[0] is self._prefetch_track:
             self.queue.pop(0)
-        elif self._shuffle and self._shuffled_tracks_to_play and self._shuffled_tracks_to_play[
-            0] is self._prefetch_track:
+        elif self._shuffle and self._shuffled_tracks_to_play and self._shuffled_tracks_to_play[0] is self._prefetch_track:
             self._shuffled_tracks_to_play.pop(0)
-            self._tracks_to_play.pop(0)
+            try:
+                self._tracks_to_play.remove(self._prefetch_track)
+            except ValueError:
+                pass
         elif self._tracks_to_play and self._tracks_to_play[0] is self._prefetch_track:
             self._tracks_to_play.pop(0)
 
@@ -892,7 +904,7 @@ class PlayerObject(GObject.GObject):
         self._prefetched_url = None
         self._prefetch_track = None
         self._prefetch_ready = False
-        self.tracks_to_play = self._tracks_to_play
+        self.tracks_to_play = self._shuffled_tracks_to_play if self._shuffle else self._tracks_to_play
 
     def _resolve_url(self, stream, manifest, track: Track) -> str:
         """Extract a playable URL from a stream and manifest.
@@ -989,6 +1001,11 @@ class PlayerObject(GObject.GObject):
 
         if track_list and len(track_list) > 0:
             track = track_list.pop(0)
+            if self._shuffle:
+                try:
+                    self._tracks_to_play.remove(track)
+                except ValueError:
+                    pass
             logger.debug(f"[PLAY_NEXT] Advancing to track={_tname(track)}")
             self.play_track(track, gapless=gapless)
 
@@ -1011,6 +1028,8 @@ class PlayerObject(GObject.GObject):
         track = self.played_songs.pop(last_index)
         if self.playing_track:
             self._tracks_to_play.insert(0, self.playing_track)
+            if self._shuffle:
+                self._shuffled_tracks_to_play.insert(0, self.playing_track)
         self.play_track(track)
 
     def previous_timer_callback(self):
